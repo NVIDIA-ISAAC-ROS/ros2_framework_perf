@@ -30,6 +30,8 @@ SPDX-License-Identifier: Apache-2.0
   <author>Hemal Shah</author>
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
+
+  <depend>std_msgs</depend>
   <build_depend>rosidl_default_generators</build_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>
 

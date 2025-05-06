@@ -14,7 +14,10 @@ def generate_launch_description():
             ComposableNode(
                 package='ros2_framework_perf',
                 plugin='ros2_framework_perf::EmitterNode',
-                name='emitter_node'
+                name='emitter_node',
+                parameters=[{
+                    'node_name': 'CameraImager01'
+                }]
             )
         ],
         output='screen'

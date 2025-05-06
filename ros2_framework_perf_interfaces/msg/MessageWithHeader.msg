@@ -15,12 +15,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# This message is used to provide the message timeline for all the messages
-# played from a rosbag for a topic.
+# This message is used to provide message keys and timestamps.
 
-# Topic name
-string topic_name
+std_msgs/Header header
 
-# A list of message timestamps in nanoseconds corresponding to when each
-# message should be published for this topic
-int64[] timestamps_ns
+string type
+string identifier
+uint64 sequence_number
+string originator
+string[] parent_messages
+
+int8[] content
+

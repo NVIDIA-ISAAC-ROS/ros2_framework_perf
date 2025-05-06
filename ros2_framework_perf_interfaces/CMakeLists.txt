@@ -33,21 +33,15 @@ if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 message( STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}" )
 
-# The FindPythonInterp and FindPythonLibs modules are removed
-if(POLICY CMP0148)
-  cmake_policy(SET CMP0148 OLD)
-endif()
-
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
 # Custom interfaces
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
-  msg/TimestampedMessageArray.msg
-  msg/TopicMessageCount.msg
-  msg/TopicMessageTimestampArray.msg
-  srv/GetTopicMessageTimestamps.srv
+  msg/MessageWithHeader.msg
+  DEPENDENCIES std_msgs
+  ADD_LINTER_TESTS
 )
 ament_export_dependencies(rosidl_default_runtime)
 

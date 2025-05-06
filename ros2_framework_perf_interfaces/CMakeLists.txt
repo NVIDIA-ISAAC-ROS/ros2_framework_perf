@@ -38,7 +38,7 @@ if(POLICY CMP0148)
   cmake_policy(SET CMP0148 OLD)
 endif()
 
-find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
 # Custom interfaces

@@ -17,8 +17,7 @@ def generate_launch_description():
                 name='emitter_node'
             )
         ],
-        output='screen',
-        arguments=['--ros-args', '--executor', 'single-threaded']
+        output='screen'
     )
 
     return LaunchDescription([

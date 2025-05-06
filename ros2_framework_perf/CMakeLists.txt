@@ -33,7 +33,7 @@ if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 message( STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}" )
 
-
+find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 ament_python_install_package(${PROJECT_NAME})
 

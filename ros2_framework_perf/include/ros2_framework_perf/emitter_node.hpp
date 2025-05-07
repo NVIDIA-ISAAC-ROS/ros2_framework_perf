@@ -21,8 +21,9 @@
 #include <memory>
 
 #include "rclcpp/rclcpp.hpp"
-#include "ros2_framework_perf_interfaces/msg/message_with_header.hpp"
-
+#include "ros2_framework_perf_interfaces/msg/message_with_payload.hpp"
+#include "ros2_framework_perf_interfaces/msg/message_id_with_timestamps.hpp"
+#include "ros2_framework_perf_interfaces/srv/get_published_messages.hpp"
 namespace ros2_framework_perf
 {
 
@@ -33,8 +34,17 @@ public:
   void timer_callback();
 
 private:
-  rclcpp::Publisher<ros2_framework_perf_interfaces::msg::MessageWithHeader>::SharedPtr publisher_;
+  rclcpp::Publisher<ros2_framework_perf_interfaces::msg::MessageWithPayload>::SharedPtr publisher_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Service<ros2_framework_perf_interfaces::srv::GetPublishedMessages>::SharedPtr get_published_messages_service_;
+
+  void handle_get_published_messages(
+    const std::shared_ptr<ros2_framework_perf_interfaces::srv::GetPublishedMessages::Request> request,
+    std::shared_ptr<ros2_framework_perf_interfaces::srv::GetPublishedMessages::Response> response);
+
+  std::unordered_map<std::string, std::vector<ros2_framework_perf_interfaces::msg::MessageInfo>> published_messages_by_topic_;
+  std::unordered_map<std::string, ros2_framework_perf_interfaces::msg::MessageIdWithTimestamps> received_messages_by_topic_;
+
   std::string node_name_;
   double frequency_hz_ = 1.0;
   uint64_t sequence_number_ = 0;

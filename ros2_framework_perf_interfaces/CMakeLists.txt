@@ -39,7 +39,10 @@ ament_auto_find_build_dependencies()
 # Custom interfaces
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
-  msg/MessageWithHeader.msg
+  msg/MessageInfo.msg
+  msg/MessageIdWithTimestamps.msg
+  msg/MessageWithPayload.msg
+  srv/GetPublishedMessages.srv
   DEPENDENCIES std_msgs
   ADD_LINTER_TESTS
 )

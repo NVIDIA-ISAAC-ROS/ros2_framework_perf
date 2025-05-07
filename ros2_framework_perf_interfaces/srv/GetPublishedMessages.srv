@@ -15,15 +15,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# This message is used to provide message keys and timestamps.
+# This service requests a node to provide the message identifiers and timestamps
+# for all published messages.
 
-std_msgs/Header header
+---
 
-string type
-string identifier
-uint64 sequence_number
-string originator
-string[] parent_messages
+# A map of topic names to their message identifiers and timestamps
+ros2_framework_perf_interfaces/msg/MessageIdWithTimestamps[] topic_message_timestamps
 
-int8[] content
+# Topic names
+string[] topic_names
 
+# True if no error occurred
+bool success false

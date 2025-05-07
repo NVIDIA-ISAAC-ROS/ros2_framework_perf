@@ -50,12 +50,22 @@ rclcpp_components_register_nodes(emitter_node "ros2_framework_perf::EmitterNode"
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-
   ament_lint_auto_find_test_dependencies()
-
   find_package(launch_testing_ament_cmake REQUIRED)
 
-endif()
+  # Add launch test
+  add_launch_test(
+    test/test_emitter_launch.py
+    TARGET test_emitter_launch
+    ENV
+      PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/test:$ENV{PYTHONPATH}
+  )
 
+  # Add Python test
+  ament_add_pytest_test(test_emitter test/test_emitter.py
+    PYTHON_EXECUTABLE "${PYTHON_EXECUTABLE}"
+    TIMEOUT 60
+  )
+endif()
 
 ament_auto_package(INSTALL_TO_SHARE ../scripts launch)

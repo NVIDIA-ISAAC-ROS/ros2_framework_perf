@@ -21,7 +21,7 @@
 std_msgs/Header header
 
 # Message metadata
-ros2_framework_perf_interfaces/msg/MessageInfo info
+MessageInfo info
 
 # Message payload
 int8[] payload

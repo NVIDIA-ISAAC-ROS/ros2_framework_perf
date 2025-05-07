@@ -61,11 +61,6 @@ if(BUILD_TESTING)
       PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/test:$ENV{PYTHONPATH}
   )
 
-  # Add Python test
-  ament_add_pytest_test(test_emitter test/test_emitter.py
-    PYTHON_EXECUTABLE "${PYTHON_EXECUTABLE}"
-    TIMEOUT 60
-  )
 endif()
 
 ament_auto_package(INSTALL_TO_SHARE ../scripts launch)

@@ -21,10 +21,15 @@
 ---
 
 # A map of topic names to their message identifiers and timestamps
-ros2_framework_perf_interfaces/msg/MessageIdWithTimestamps[] topic_message_timestamps
+MessageIdWithTimestamps[] received_message_timestamps
 
 # Topic names
-string[] topic_names
+string[] received_topic_names
+
+
+MessageInfo[] published_messages
+
+string[] published_topic_names
 
 # True if no error occurred
 bool success false

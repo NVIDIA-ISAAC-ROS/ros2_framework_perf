@@ -1,6 +1,10 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch_ros.actions import ComposableNodeContainer
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node, ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 from launch.actions import EmitEvent
 from launch.event_handlers import OnProcessStart
@@ -11,14 +15,44 @@ from lifecycle_msgs.msg import Transition
 
 def generate_launch_description():
     """Generate launch description for EmitterNode."""
+    # Declare the launch arguments
+    node_name_arg = DeclareLaunchArgument(
+        'node_name',
+        default_value='CameraImager01',
+        description='Name of the node'
+    )
+
+    yaml_config_arg = DeclareLaunchArgument(
+        'yaml_config',
+        default_value='',
+        description='YAML configuration for the emitter node'
+    )
+
+    # Get the package share directory
+    pkg_share = get_package_share_directory('ros2_framework_perf')
+
+    # Create the node
+    emitter_node = Node(
+        package='ros2_framework_perf',
+        executable='emitter_node',
+        name=LaunchConfiguration('node_name'),
+        parameters=[{
+            'node_name': LaunchConfiguration('node_name'),
+            'yaml_config': LaunchConfiguration('yaml_config')
+        }],
+        output='screen'
+    )
+
     # Create EmitterNode
-    emitter_node = ComposableNode(
+    emitter_node_composable = ComposableNode(
         package='ros2_framework_perf',
         plugin='ros2_framework_perf::EmitterNode',
         name='emitter_node',
         parameters=[{
-            'node_name': 'CameraImager01'
-        }]
+            'node_name': LaunchConfiguration('node_name'),
+            'yaml_config': LaunchConfiguration('yaml_config')
+        }],
+        output='screen'
     )
 
     # Create container with EmitterNode
@@ -27,10 +61,13 @@ def generate_launch_description():
         namespace='',
         package='rclcpp_components',
         executable='component_container',
-        composable_node_descriptions=[emitter_node],
+        composable_node_descriptions=[emitter_node_composable],
         output='screen'
     )
 
     return LaunchDescription([
+        node_name_arg,
+        yaml_config_arg,
+        emitter_node,
         container
     ])

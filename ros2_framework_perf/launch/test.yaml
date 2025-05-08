@@ -1,0 +1,38 @@
+// Example YAML configuration format:
+publishers:
+  - topic_name: "/sensor/data"
+    message_size: 1024  # bytes
+    trigger:
+      type: "timer"
+      timer_group: "sensor_group"  # Use timer group instead of frequency
+      subscription_topics:
+        - topic: "/camera/image"
+          mode: "window"  # Collect all messages since last publish
+        - topic: "/imu/data"
+          mode: "latest"  # Only use the most recent message
+
+  - topic_name: "/sensor/data2"
+    message_size: 1024  # bytes
+    trigger:
+      type: "timer"
+      timer_group: "sensor_group"  # Same timer group as above
+      subscription_topics:
+        - topic: "/camera/image"
+          mode: "window"
+        - topic: "/imu/data"
+          mode: "latest"
+
+  - topic_name: "/processed/result"
+    message_size: 2048  # bytes
+    trigger:
+      type: "message_received"
+      mode: "exact_time"  # Match timestamps across all topics
+      window_size: 20  # Look at last 20 messages for matching timestamps
+      topics:
+        - "/sensor/data"
+        - "/sensor/data2"
+        - "/camera/image"
+
+timer_groups:
+  - name: "sensor_group"
+    frequency: 10.0  # Hz

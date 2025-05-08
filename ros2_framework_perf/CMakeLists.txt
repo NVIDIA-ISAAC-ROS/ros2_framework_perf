@@ -15,7 +15,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.8)
 project(ros2_framework_perf)
 
 # Default to C++17
@@ -45,6 +45,9 @@ ament_auto_add_library(emitter_node SHARED
 target_include_directories(emitter_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(emitter_node
+  yaml-cpp
 )
 rclcpp_components_register_nodes(emitter_node "ros2_framework_perf::EmitterNode")
 

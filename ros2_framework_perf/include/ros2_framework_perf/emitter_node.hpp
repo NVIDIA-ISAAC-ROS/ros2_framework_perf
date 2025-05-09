@@ -91,32 +91,25 @@ public:
 
 private:
   // Helper functions for message synchronization
-  template<typename Policy>
   void setup_synchronizer_2(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& msg_config,
-    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-    Policy& policy);
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs);
 
-  template<typename Policy>
   void setup_synchronizer_3(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& msg_config,
-    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-    Policy& policy);
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs);
 
-  template<typename Policy>
   void setup_synchronizer_4(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& msg_config,
-    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-    Policy& policy);
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs);
 
   void setup_synchronizer(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& msg_config,
-    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-    const std::string& mode);
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs);
 
   // Callback functions
   void subscriber_callback(

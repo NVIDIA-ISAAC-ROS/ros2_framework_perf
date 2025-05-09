@@ -125,12 +125,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         message_filters_subscribers_by_topic_[config.topic_name].push_back(sub);
         RCLCPP_INFO(get_logger(), "Created message filter subscriber for topic %s", topic.c_str());
       }
-
-      if (msg_config.mode == "exact_time") {
-        setup_synchronizer(config.topic_name, msg_config, subs, "exact_time");
-      } else if (msg_config.mode == "approximate_time") {
-        setup_synchronizer(config.topic_name, msg_config, subs, "approximate_time");
-      }
+      setup_synchronizer(config.topic_name, msg_config, subs);
     } else if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
       const auto& timer_config = std::get<TimerTriggerConfig>(config.trigger);
       // Check if this message's topic is in the subscription topics list
@@ -488,83 +483,131 @@ void EmitterNode::handle_get_published_messages(
 }
 
 // Helper functions for message synchronization
-template<typename Policy>
 void EmitterNode::setup_synchronizer_2(
   const std::string& topic_name,
   const MessageReceivedTriggerConfig& msg_config,
-  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-  Policy& policy)
+  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs)
 {
-  using Sync = message_filters::Synchronizer<Policy>;
-  auto sync = std::make_shared<Sync>(policy);
-  sync->connectInput(*subs[0], *subs[1]);
-  sync->registerCallback(
-    [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2) {
-      std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
-      msgs.push_back(msg1);
-      msgs.push_back(msg2);
-      this->handle_message_received_trigger(topic_name, msg_config, msgs);
-    });
-  if constexpr (std::is_same_v<Policy, message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>) {
+  if (msg_config.mode == "exact_time") {
+    using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     exact_syncs_2_[topic_name] = sync;
   } else {
+    using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     approx_syncs_2_[topic_name] = sync;
   }
 }
 
-template<typename Policy>
 void EmitterNode::setup_synchronizer_3(
   const std::string& topic_name,
   const MessageReceivedTriggerConfig& msg_config,
-  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-  Policy& policy)
+  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs)
 {
-  using Sync = message_filters::Synchronizer<Policy>;
-  auto sync = std::make_shared<Sync>(policy);
-  sync->connectInput(*subs[0], *subs[1], *subs[2]);
-  sync->registerCallback(
-    [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3) {
-      std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
-      msgs.push_back(msg1);
-      msgs.push_back(msg2);
-      msgs.push_back(msg3);
-      this->handle_message_received_trigger(topic_name, msg_config, msgs);
-    });
-  if constexpr (std::is_same_v<Policy, message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>) {
+  if (msg_config.mode == "exact_time") {
+    using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1], *subs[2]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        msgs.push_back(msg3);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     exact_syncs_3_[topic_name] = sync;
   } else {
+    using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1], *subs[2]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        msgs.push_back(msg3);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     approx_syncs_3_[topic_name] = sync;
   }
 }
 
-template<typename Policy>
 void EmitterNode::setup_synchronizer_4(
   const std::string& topic_name,
   const MessageReceivedTriggerConfig& msg_config,
-  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-  Policy& policy)
+  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs)
 {
-  using Sync = message_filters::Synchronizer<Policy>;
-  auto sync = std::make_shared<Sync>(policy);
-  sync->connectInput(*subs[0], *subs[1], *subs[2], *subs[3]);
-  sync->registerCallback(
-    [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3,
-                                 const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg4) {
-      std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
-      msgs.push_back(msg1);
-      msgs.push_back(msg2);
-      msgs.push_back(msg3);
-      msgs.push_back(msg4);
-      this->handle_message_received_trigger(topic_name, msg_config, msgs);
-    });
-  if constexpr (std::is_same_v<Policy, message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>) {
+  if (msg_config.mode == "exact_time") {
+    using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1], *subs[2], *subs[3]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg4) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        msgs.push_back(msg3);
+        msgs.push_back(msg4);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     exact_syncs_4_[topic_name] = sync;
   } else {
+    using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
+    using Sync = message_filters::Synchronizer<Policy>;
+    Policy policy(msg_config.window_size);
+    policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
+    auto sync = std::make_shared<Sync>(policy);
+    sync->connectInput(*subs[0], *subs[1], *subs[2], *subs[3]);
+    sync->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg1,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg2,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg3,
+                                   const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg4) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg1);
+        msgs.push_back(msg2);
+        msgs.push_back(msg3);
+        msgs.push_back(msg4);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
     approx_syncs_4_[topic_name] = sync;
   }
 }
@@ -572,8 +615,7 @@ void EmitterNode::setup_synchronizer_4(
 void EmitterNode::setup_synchronizer(
   const std::string& topic_name,
   const MessageReceivedTriggerConfig& msg_config,
-  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
-  const std::string& mode)
+  const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs)
 {
   // Ensure we have at least 2 and at most 4 subscribers
   if (subs.size() < 2 || subs.size() > 4) {
@@ -583,45 +625,15 @@ void EmitterNode::setup_synchronizer(
 
   // Connect all subscribers at once based on number of topics
   switch (subs.size()) {
-    case 2: {
-      if (mode == "exact_time") {
-        using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        setup_synchronizer_2(topic_name, msg_config, subs, policy);
-      } else {
-        using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
-        setup_synchronizer_2(topic_name, msg_config, subs, policy);
-      }
+    case 2:
+      setup_synchronizer_2(topic_name, msg_config, subs);
       break;
-    }
-    case 3: {
-      if (mode == "exact_time") {
-        using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        setup_synchronizer_3(topic_name, msg_config, subs, policy);
-      } else {
-        using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
-        setup_synchronizer_3(topic_name, msg_config, subs, policy);
-      }
+    case 3:
+      setup_synchronizer_3(topic_name, msg_config, subs);
       break;
-    }
-    case 4: {
-      if (mode == "exact_time") {
-        using Policy = message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        setup_synchronizer_4(topic_name, msg_config, subs, policy);
-      } else {
-        using Policy = message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>;
-        Policy policy(msg_config.window_size);
-        policy.setMaxIntervalDuration(rclcpp::Duration::from_seconds(msg_config.time_delta));
-        setup_synchronizer_4(topic_name, msg_config, subs, policy);
-      }
+    case 4:
+      setup_synchronizer_4(topic_name, msg_config, subs);
       break;
-    }
   }
 }
 

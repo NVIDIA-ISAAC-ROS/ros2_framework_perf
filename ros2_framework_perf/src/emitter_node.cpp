@@ -84,7 +84,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         if (pub["trigger"]["subscription_topics"]) {
           for (const auto& sub : pub["trigger"]["subscription_topics"]) {
             SubscriptionConfig sub_config;
-            sub_config.topic = sub["topic"].as<std::string>();
+            sub_config.topic = sub["topic_name"].as<std::string>();
             sub_config.mode = sub["mode"].as<std::string>();
             if (sub_config.mode == "window") {
               sub_config.window_time = sub["window_time"].as<double>();

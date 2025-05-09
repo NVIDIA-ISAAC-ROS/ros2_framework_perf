@@ -90,6 +90,34 @@ public:
   on_shutdown(const rclcpp_lifecycle::State & state) override;
 
 private:
+  // Helper functions for message synchronization
+  template<typename Policy>
+  void setup_synchronizer_2(
+    const std::string& topic_name,
+    const MessageReceivedTriggerConfig& msg_config,
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
+    Policy& policy);
+
+  template<typename Policy>
+  void setup_synchronizer_3(
+    const std::string& topic_name,
+    const MessageReceivedTriggerConfig& msg_config,
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
+    Policy& policy);
+
+  template<typename Policy>
+  void setup_synchronizer_4(
+    const std::string& topic_name,
+    const MessageReceivedTriggerConfig& msg_config,
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
+    Policy& policy);
+
+  void setup_synchronizer(
+    const std::string& topic_name,
+    const MessageReceivedTriggerConfig& msg_config,
+    const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs,
+    const std::string& mode);
+
   // Callback functions
   void subscriber_callback(
     const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg,
@@ -128,17 +156,14 @@ private:
 
   // Message filters
   using MessageType = ros2_framework_perf_interfaces::msg::MessageWithPayload;
-  using ExactPolicy = message_filters::sync_policies::ExactTime<MessageType, MessageType>;
-  using ApproxPolicy = message_filters::sync_policies::ApproximateTime<MessageType, MessageType>;
-  using ExactSync = message_filters::Synchronizer<ExactPolicy>;
-  using ApproxSync = message_filters::Synchronizer<ApproxPolicy>;
-
   std::map<std::string, std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>> message_filters_subscribers_;
   std::map<std::string, std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> message_filters_subscribers_by_topic_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_2_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_3_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_4_;
-  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_2_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_3_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_4_;
 };
 
 }  // namespace ros2_framework_perf

@@ -132,7 +132,8 @@ publishers:
         parameters=[{
             'node_name': 'ActuatorNode',
             'yaml_config': '''
-publishers: []  # No publishers, just subscribes to /robot_cmd
+subscriptions:
+  - topic_name: "/robot_cmd"
 '''
         }]
     )

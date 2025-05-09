@@ -41,6 +41,10 @@ namespace ros2_framework_perf
 
 struct SubscriptionConfig {
   std::string topic;
+};
+
+struct PublisherSubscriptionConfig {
+  std::string topic;
   std::string mode;  // "window" or "latest"
   double window_time;  // Required when mode is "window"
 };
@@ -48,7 +52,7 @@ struct SubscriptionConfig {
 struct TimerTriggerConfig {
   std::optional<double> frequency;  // Optional frequency if not using a timer group
   std::optional<std::string> timer_group_name;  // Optional timer group name
-  std::vector<SubscriptionConfig> subscription_topics;
+  std::vector<PublisherSubscriptionConfig> subscription_topics;
 };
 
 struct MessageReceivedTriggerConfig {
@@ -122,7 +126,7 @@ private:
     const rclcpp::Time& current_time);
   void handle_subscription_message(
     const std::string& topic_name,
-    const SubscriptionConfig& config,
+    const std::variant<SubscriptionConfig, PublisherSubscriptionConfig>& config,
     const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg);
   void handle_message_received_trigger(
     const std::string& topic_name,
@@ -146,6 +150,7 @@ private:
   std::map<std::string, ros2_framework_perf_interfaces::msg::MessageIdWithTimestamps> received_messages_by_topic_;
   std::map<std::string, std::vector<ros2_framework_perf_interfaces::msg::MessageInfo>> published_messages_by_topic_;
   std::vector<PublisherConfig> publisher_configs_;
+  std::vector<SubscriptionConfig> subscription_configs_;  // Added for standalone subscriptions
 
   // Message filters
   using MessageType = ros2_framework_perf_interfaces::msg::MessageWithPayload;

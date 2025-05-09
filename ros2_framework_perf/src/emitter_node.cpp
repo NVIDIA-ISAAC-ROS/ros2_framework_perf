@@ -83,7 +83,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         }
         if (pub["trigger"]["subscription_topics"]) {
           for (const auto& sub : pub["trigger"]["subscription_topics"]) {
-            SubscriptionConfig sub_config;
+            PublisherSubscriptionConfig sub_config;
             sub_config.topic = sub["topic_name"].as<std::string>();
             sub_config.mode = sub["mode"].as<std::string>();
             if (sub_config.mode == "window") {
@@ -109,6 +109,27 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         pub_config.trigger = msg_config;
       }
       publisher_configs_.push_back(pub_config);
+    }
+  }
+
+  // Parse standalone subscriptions
+  if (config["subscriptions"]) {
+    for (const auto& sub : config["subscriptions"]) {
+      SubscriptionConfig sub_config;
+      sub_config.topic = sub["topic_name"].as<std::string>();
+      subscription_configs_.push_back(sub_config);
+
+      // Create subscriber
+      subscribers_[sub_config.topic] = create_subscription<ros2_framework_perf_interfaces::msg::MessageWithPayload>(
+        sub_config.topic,
+        rclcpp::QoS(10).reliable().durability_volatile(),
+        [this, sub_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg) {
+          auto now = this->now();
+          RCLCPP_INFO(this->get_logger(), "Received message on topic %s: %s with timestamp %f.%ld",
+            sub_config.topic.c_str(), msg->info.identifier.c_str(), now.seconds(), now.nanoseconds());
+          this->handle_subscription_message(sub_config.topic, sub_config, msg);
+        });
+      RCLCPP_INFO(get_logger(), "Created standalone subscriber for topic %s", sub_config.topic.c_str());
     }
   }
 
@@ -377,7 +398,7 @@ void EmitterNode::handle_timer_trigger(
 
 void EmitterNode::handle_subscription_message(
   const std::string& topic_name,
-  const SubscriptionConfig& config,
+  const std::variant<SubscriptionConfig, PublisherSubscriptionConfig>& config,
   const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg)
 {
   rclcpp::Time current_time = this->now();
@@ -385,21 +406,28 @@ void EmitterNode::handle_subscription_message(
   timestamp.sec = current_time.seconds();
   timestamp.nanosec = current_time.nanoseconds();
 
-  if (config.mode == "window") {
-    // Store all messages in window mode
-    received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
-    received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
-  }
-  else if (config.mode == "latest") {
-    // Only keep the latest message
-    if (received_messages_by_topic_[topic_name].timestamps.empty()) {
+  if (std::holds_alternative<PublisherSubscriptionConfig>(config)) {
+    const auto& pub_config = std::get<PublisherSubscriptionConfig>(config);
+    if (pub_config.mode == "window") {
+      // Store all messages in window mode
       received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
       received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
     }
-    else {
-      received_messages_by_topic_[topic_name].timestamps.back() = timestamp;
-      received_messages_by_topic_[topic_name].message_identifiers.back() = msg->info.identifier;
+    else if (pub_config.mode == "latest") {
+      // Only keep the latest message
+      if (received_messages_by_topic_[topic_name].timestamps.empty()) {
+        received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
+        received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
+      }
+      else {
+        received_messages_by_topic_[topic_name].timestamps.back() = timestamp;
+        received_messages_by_topic_[topic_name].message_identifiers.back() = msg->info.identifier;
+      }
     }
+  } else {
+    // Simple subscription - just store the message
+    received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
+    received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
   }
 }
 

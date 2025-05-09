@@ -133,9 +133,12 @@ private:
   using ExactSync = message_filters::Synchronizer<ExactPolicy>;
   using ApproxSync = message_filters::Synchronizer<ApproxPolicy>;
 
-  std::map<std::string, std::vector<std::shared_ptr<message_filters::Subscriber<MessageType>>>> message_filters_subscribers_;
-  std::map<std::string, std::shared_ptr<ExactSync>> exact_syncs_;
-  std::map<std::string, std::shared_ptr<ApproxSync>> approx_syncs_;
+  std::map<std::string, std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>> message_filters_subscribers_;
+  std::map<std::string, std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> message_filters_subscribers_by_topic_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_2_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_3_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ExactTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> exact_syncs_4_;
+  std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_;
 };
 
 }  // namespace ros2_framework_perf

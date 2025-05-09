@@ -87,13 +87,70 @@ publishers:
         }]
     )
 
+    tensor_inference_node_composable = ComposableNode(
+        package='ros2_framework_perf',
+        plugin='ros2_framework_perf::EmitterNode',
+        name='tensor_inference_node',
+        parameters=[{
+            'node_name': 'TensorInferenceNode',
+            'yaml_config': '''
+publishers:
+  - topic_name: "/tensor_inference_output"
+    message_size: 2048
+    trigger:
+      type: "message_received"
+      mode: "exact_time"
+      topics:
+        - "/tensor_encoder_output"
+'''
+        }]
+    )
+
+    tensor_decode_node_composable = ComposableNode(
+        package='ros2_framework_perf',
+        plugin='ros2_framework_perf::EmitterNode',
+        name='tensor_decode_node',
+        parameters=[{
+            'node_name': 'TensorDecodeNode',
+            'yaml_config': '''
+publishers:
+  - topic_name: "/robot_cmd"
+    message_size: 512
+    trigger:
+      type: "message_received"
+      mode: "exact_time"
+      topics:
+        - "/tensor_inference_output"
+'''
+        }]
+    )
+
+    actuator_node_composable = ComposableNode(
+        package='ros2_framework_perf',
+        plugin='ros2_framework_perf::EmitterNode',
+        name='actuator_node',
+        parameters=[{
+            'node_name': 'ActuatorNode',
+            'yaml_config': '''
+publishers: []  # No publishers, just subscribes to /robot_cmd
+'''
+        }]
+    )
+
     # Create container with EmitterNode
     container = ComposableNodeContainer(
         name='emitter_container',
         namespace='',
         package='rclcpp_components',
         executable='component_container',
-        composable_node_descriptions=[camera_node_composable, rectify_node_composable, tensor_encoder_node_composable],
+        composable_node_descriptions=[
+            camera_node_composable,
+            rectify_node_composable,
+            tensor_encoder_node_composable,
+            tensor_inference_node_composable,
+            tensor_decode_node_composable,
+            actuator_node_composable
+        ],
         output='screen'
     )
 
@@ -104,116 +161,61 @@ publishers:
 
 
 class LifecycleTestNode(Node):
-    def __init__(self):
+    def __init__(self, node_names):
         super().__init__('lifecycle_test_node')
-        self.camera_lifecycle_client = self.create_client(
-            ChangeState,
-            '/camera_node/change_state'
-        )
-        self.rectify_lifecycle_client = self.create_client(
-            ChangeState,
-            '/rectify_node/change_state'
-        )
-        self.tensor_encoder_lifecycle_client = self.create_client(
-            ChangeState,
-            '/tensor_encoder_node/change_state'
-        )
+        self.node_names = node_names
+        self.lifecycle_clients = {}
+
+        # Create lifecycle clients for each node
+        for node_name in node_names:
+            self.lifecycle_clients[node_name] = self.create_client(
+                ChangeState,
+                f'/{node_name}/change_state'
+            )
+
+    def _call_lifecycle_service(self, node_name, transition_id):
+        """Helper method to call lifecycle service for a specific node."""
+        if node_name not in self.lifecycle_clients:
+            self.get_logger().error(f'No lifecycle client found for node: {node_name}')
+            return False
+
+        request = ChangeState.Request()
+        request.transition.id = transition_id
+        future = self.lifecycle_clients[node_name].call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        return future.result()
 
     def configure_nodes(self):
-        # Configure camera node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_CONFIGURE
-        future = self.camera_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        camera_result = future.result()
-
-        # Configure rectify node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_CONFIGURE
-        future = self.rectify_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        rectify_result = future.result()
-
-        # Configure tensor encoder node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_CONFIGURE
-        future = self.tensor_encoder_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        tensor_encoder_result = future.result()
-
-        return camera_result and rectify_result and tensor_encoder_result
+        """Configure all nodes."""
+        results = []
+        for node_name in self.node_names:
+            result = self._call_lifecycle_service(node_name, Transition.TRANSITION_CONFIGURE)
+            results.append(result)
+        return all(results)
 
     def activate_nodes(self):
-        # Activate camera node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_ACTIVATE
-        future = self.camera_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        camera_result = future.result()
-
-        # Activate rectify node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_ACTIVATE
-        future = self.rectify_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        rectify_result = future.result()
-
-        # Activate tensor encoder node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_ACTIVATE
-        future = self.tensor_encoder_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        tensor_encoder_result = future.result()
-
-        return camera_result and rectify_result and tensor_encoder_result
+        """Activate all nodes."""
+        results = []
+        for node_name in self.node_names:
+            result = self._call_lifecycle_service(node_name, Transition.TRANSITION_ACTIVATE)
+            results.append(result)
+        return all(results)
 
     def deactivate_nodes(self):
-        # Deactivate camera node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_DEACTIVATE
-        future = self.camera_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        camera_result = future.result()
-
-        # Deactivate rectify node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_DEACTIVATE
-        future = self.rectify_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        rectify_result = future.result()
-
-        # Deactivate tensor encoder node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_DEACTIVATE
-        future = self.tensor_encoder_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        tensor_encoder_result = future.result()
-
-        return camera_result and rectify_result and tensor_encoder_result
+        """Deactivate all nodes."""
+        results = []
+        for node_name in self.node_names:
+            result = self._call_lifecycle_service(node_name, Transition.TRANSITION_DEACTIVATE)
+            results.append(result)
+        return all(results)
 
     def shutdown_nodes(self):
-        # Shutdown camera node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_INACTIVE_SHUTDOWN
-        future = self.camera_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        camera_result = future.result()
-
-        # Shutdown rectify node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_INACTIVE_SHUTDOWN
-        future = self.rectify_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        rectify_result = future.result()
-
-        # Shutdown tensor encoder node
-        request = ChangeState.Request()
-        request.transition.id = Transition.TRANSITION_INACTIVE_SHUTDOWN
-        future = self.tensor_encoder_lifecycle_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        tensor_encoder_result = future.result()
-
-        return camera_result and rectify_result and tensor_encoder_result
+        """Shutdown all nodes."""
+        results = []
+        for node_name in self.node_names:
+            result = self._call_lifecycle_service(node_name, Transition.TRANSITION_INACTIVE_SHUTDOWN)
+            results.append(result)
+        return all(results)
 
 
 class TestEmitterNode(unittest.TestCase):
@@ -222,7 +224,18 @@ class TestEmitterNode(unittest.TestCase):
         print("\n=== Setting up Test Class ===")
         rclpy.init()
         cls.node = Node('test_emitter')
-        cls.lifecycle_node = LifecycleTestNode()
+
+        # Define the set of node names
+        cls.node_names = [
+            'camera_node',
+            'rectify_node',
+            'tensor_encoder_node',
+            'tensor_inference_node',
+            'tensor_decode_node',
+            'actuator_node'
+        ]
+
+        cls.lifecycle_node = LifecycleTestNode(cls.node_names)
         cls.received_messages = []
 
         # Wait for the nodes to be ready
@@ -269,6 +282,18 @@ class TestEmitterNode(unittest.TestCase):
             GetPublishedMessages,
             '/tensor_encoder_node/get_published_messages'
         )
+        self.tensor_inference_messages_client = self.node.create_client(
+            GetPublishedMessages,
+            '/tensor_inference_node/get_published_messages'
+        )
+        self.tensor_decode_messages_client = self.node.create_client(
+            GetPublishedMessages,
+            '/tensor_decode_node/get_published_messages'
+        )
+        self.actuator_messages_client = self.node.create_client(
+            GetPublishedMessages,
+            '/actuator_node/get_published_messages'
+        )
 
         # Wait for services to be available
         while not self.camera_messages_client.wait_for_service(timeout_sec=1.0):
@@ -277,6 +302,12 @@ class TestEmitterNode(unittest.TestCase):
             self.node.get_logger().info('Waiting for rectify get_published_messages service...')
         while not self.tensor_encoder_messages_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info('Waiting for tensor encoder get_published_messages service...')
+        while not self.tensor_inference_messages_client.wait_for_service(timeout_sec=1.0):
+            self.node.get_logger().info('Waiting for tensor inference get_published_messages service...')
+        while not self.tensor_decode_messages_client.wait_for_service(timeout_sec=1.0):
+            self.node.get_logger().info('Waiting for tensor decode get_published_messages service...')
+        while not self.actuator_messages_client.wait_for_service(timeout_sec=1.0):
+            self.node.get_logger().info('Waiting for actuator get_published_messages service...')
 
     def tearDown(self):
         self.lifecycle_node.deactivate_nodes()
@@ -285,6 +316,9 @@ class TestEmitterNode(unittest.TestCase):
         self.node.destroy_client(self.camera_messages_client)
         self.node.destroy_client(self.rectify_messages_client)
         self.node.destroy_client(self.tensor_encoder_messages_client)
+        self.node.destroy_client(self.tensor_inference_messages_client)
+        self.node.destroy_client(self.tensor_decode_messages_client)
+        self.node.destroy_client(self.actuator_messages_client)
 
     def test_get_published_messages_service(self):
         """Test the get_published_messages service."""
@@ -314,8 +348,44 @@ class TestEmitterNode(unittest.TestCase):
         self.assertIn('/camera_image_left_rectified', response.published_topic_names, "Rectified image topic not found in response")
         self.assertGreater(len(response.published_messages), 0, "No published messages in rectify response")
 
+        # Call the tensor encoder service
+        request = GetPublishedMessages.Request()
+        future = self.tensor_encoder_messages_client.call_async(request)
+        rclpy.spin_until_future_complete(self.node, future)
+
+        # Check the tensor encoder response
+        response = future.result()
+        self.assertTrue(response.success, "Tensor encoder service call was not successful")
+        self.assertIn('/tensor_encoder_output', response.published_topic_names, "Tensor encoder output topic not found in response")
+        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor encoder response")
+
+        # Call the tensor inference service
+        request = GetPublishedMessages.Request()
+        future = self.tensor_inference_messages_client.call_async(request)
+        rclpy.spin_until_future_complete(self.node, future)
+
+        # Check the tensor inference response
+        response = future.result()
+        self.assertTrue(response.success, "Tensor inference service call was not successful")
+        self.assertIn('/tensor_inference_output', response.published_topic_names, "Tensor inference output topic not found in response")
+        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor inference response")
+
+        # Call the tensor decode service
+        request = GetPublishedMessages.Request()
+        future = self.tensor_decode_messages_client.call_async(request)
+        rclpy.spin_until_future_complete(self.node, future)
+
+        # Check the tensor decode response
+        response = future.result()
+        self.assertTrue(response.success, "Tensor decode service call was not successful")
+        self.assertIn('/robot_cmd', response.published_topic_names, "Robot command topic not found in response")
+        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor decode response")
+
         print(f"Camera response, published messages: {response.published_messages}")
         print(f"Rectify response, published messages: {response.published_messages}")
+        print(f"Tensor encoder response, published messages: {response.published_messages}")
+        print(f"Tensor inference response, published messages: {response.published_messages}")
+        print(f"Tensor decode response, published messages: {response.published_messages}")
 
 
 def main():

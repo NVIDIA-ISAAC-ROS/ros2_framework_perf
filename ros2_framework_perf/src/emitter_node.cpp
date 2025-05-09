@@ -617,7 +617,18 @@ void EmitterNode::setup_synchronizer(
   const MessageReceivedTriggerConfig& msg_config,
   const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs)
 {
-  // Ensure we have at least 2 and at most 4 subscribers
+  // Special case for single topic - no synchronization needed
+  if (subs.size() == 1) {
+    subs[0]->registerCallback(
+      [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {
+        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
+        msgs.push_back(msg);
+        this->handle_message_received_trigger(topic_name, msg_config, msgs);
+      });
+    return;
+  }
+
+  // Ensure we have at least 2 and at most 4 subscribers for synchronization
   if (subs.size() < 2 || subs.size() > 4) {
     RCLCPP_ERROR(get_logger(), "Synchronizer requires between 2 and 4 topics, got %zu", subs.size());
     return;

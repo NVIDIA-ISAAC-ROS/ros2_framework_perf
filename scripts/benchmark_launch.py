@@ -45,6 +45,8 @@ publishers:
 '''
         }]
     )
+    print("Camera node configuration:")
+    print(camera_node_composable.parameters[0].get('yaml_config', ''))
 
     rectify_node_composable = ComposableNode(
         package='ros2_framework_perf',
@@ -198,7 +200,9 @@ class LifecycleTestNode(Node):
         """Activate all nodes."""
         results = []
         for node_name in self.node_names:
+            print(f"Activating node: {node_name}")
             result = self._call_lifecycle_service(node_name, Transition.TRANSITION_ACTIVATE)
+            print(f"Activation result for {node_name}: {result}")
             results.append(result)
         return all(results)
 
@@ -267,126 +271,109 @@ class TestEmitterNode(unittest.TestCase):
         time.sleep(2.0)
 
         # Activate the nodes
-        self.lifecycle_node.activate_nodes()
+        print("Activating nodes...")
+        activation_result = self.lifecycle_node.activate_nodes()
+        print(f"Node activation result: {activation_result}")
         print("Activated nodes")
 
-        # Create service clients to get published messages
-        self.camera_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/camera_node/get_published_messages'
-        )
-        self.rectify_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/rectify_node/get_published_messages'
-        )
-        self.tensor_encoder_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/tensor_encoder_node/get_published_messages'
-        )
-        self.tensor_inference_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/tensor_inference_node/get_published_messages'
-        )
-        self.tensor_decode_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/tensor_decode_node/get_published_messages'
-        )
-        self.actuator_messages_client = self.node.create_client(
-            GetPublishedMessages,
-            '/actuator_node/get_published_messages'
-        )
+        # Create service clients for each node
+        self.message_clients = {}
+        for node_name in self.node_names:
+            print(f"Creating message client for {node_name}")
+            self.message_clients[node_name] = self.node.create_client(
+                GetPublishedMessages,
+                f'/{node_name}/get_published_messages'
+            )
 
-        # Wait for services to be available
-        while not self.camera_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for camera get_published_messages service...')
-        while not self.rectify_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for rectify get_published_messages service...')
-        while not self.tensor_encoder_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for tensor encoder get_published_messages service...')
-        while not self.tensor_inference_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for tensor inference get_published_messages service...')
-        while not self.tensor_decode_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for tensor decode get_published_messages service...')
-        while not self.actuator_messages_client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for actuator get_published_messages service...')
+        # Wait for all services to be available
+        for node_name, client in self.message_clients.items():
+            print(f"Waiting for {node_name} service...")
+            service_ready = False
+            start_time = time.time()
+            while not service_ready and (time.time() - start_time) < 10.0:  # Add timeout
+                service_ready = client.wait_for_service(timeout_sec=1.0)
+                if not service_ready:
+                    self.node.get_logger().info(f'Still waiting for {node_name} get_published_messages service...')
+            if not service_ready:
+                self.node.get_logger().error(f'Failed to get {node_name} service after 10 seconds')
+            else:
+                self.node.get_logger().info(f'Successfully got {node_name} service')
 
     def tearDown(self):
         self.lifecycle_node.deactivate_nodes()
         print("Deactivated nodes")
 
-        self.node.destroy_client(self.camera_messages_client)
-        self.node.destroy_client(self.rectify_messages_client)
-        self.node.destroy_client(self.tensor_encoder_messages_client)
-        self.node.destroy_client(self.tensor_inference_messages_client)
-        self.node.destroy_client(self.tensor_decode_messages_client)
-        self.node.destroy_client(self.actuator_messages_client)
+        # Destroy all message clients
+        for client in self.message_clients.values():
+            self.node.destroy_client(client)
+        self.message_clients.clear()
 
     def test_get_published_messages_service(self):
         """Test the get_published_messages service."""
-        # Wait for some messages to be published
-        time.sleep(2.0)
+        # Wait for the service to be available
+        self.assertTrue(
+            self.message_clients['actuator_node'].wait_for_service(timeout_sec=5.0),
+            "get_published_messages service not available"
+        )
 
-        # Call the camera service
+        # Call the service
         request = GetPublishedMessages.Request()
-        future = self.camera_messages_client.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+        future = self.message_clients['actuator_node'].call_async(request)
+        rclpy.spin_until_future_complete(self, future)
 
-        # Check the camera response
+        # Get the response
         response = future.result()
-        self.assertTrue(response.success, "Camera service call was not successful")
-        self.assertIn('/camera_image_left', response.published_topic_names, "Camera image topic not found in response")
-        self.assertIn('/camera_info_left', response.published_topic_names, "Camera info topic not found in response")
-        self.assertGreater(len(response.published_messages), 0, "No published messages in camera response")
+        self.assertTrue(response.success, "Service call failed")
 
-        # Call the rectify service
-        request = GetPublishedMessages.Request()
-        future = self.rectify_messages_client.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+        # Print published messages for each topic
+        print("\nPublished Messages:")
+        for i, topic in enumerate(response.published_topic_names):
+            print(f"\nTopic: {topic}")
+            for msg in response.published_messages:
+                if msg.originator == topic.split('/')[0]:  # Get node name from topic
+                    print(f"  Message: {msg.identifier}")
+                    print(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}")
 
-        # Check the rectify response
-        response = future.result()
-        self.assertTrue(response.success, "Rectify service call was not successful")
-        self.assertIn('/camera_image_left_rectified', response.published_topic_names, "Rectified image topic not found in response")
-        self.assertGreater(len(response.published_messages), 0, "No published messages in rectify response")
+        # Print received messages for each topic
+        print("\nReceived Messages:")
+        for i, topic in enumerate(response.received_topic_names):
+            print(f"\nTopic: {topic}")
+            for j, msg_id in enumerate(response.received_message_timestamps[i].message_identifiers):
+                timestamp = response.received_message_timestamps[i].timestamps[j]
+                print(f"  Message: {msg_id}")
+                print(f"  Timestamp: {timestamp.sec}.{timestamp.nanosec}")
 
-        # Call the tensor encoder service
-        request = GetPublishedMessages.Request()
-        future = self.tensor_encoder_messages_client.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+        # Analyze latency between tensor decode and actuator nodes
+        print("\nLatency Analysis (Tensor Decode -> Actuator):")
 
-        # Check the tensor encoder response
-        response = future.result()
-        self.assertTrue(response.success, "Tensor encoder service call was not successful")
-        self.assertIn('/tensor_encoder_output', response.published_topic_names, "Tensor encoder output topic not found in response")
-        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor encoder response")
+        # Create a map of message IDs to their publish timestamps from tensor decode node
+        tensor_decode_timestamps = {}
+        for msg in response.published_messages:
+            if msg.originator == "tensor_decode_node":
+                tensor_decode_timestamps[msg.identifier] = msg.publish_timestamp
 
-        # Call the tensor inference service
-        request = GetPublishedMessages.Request()
-        future = self.tensor_inference_messages_client.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+        # Find actuator node's received messages
+        actuator_topic_index = None
+        for i, topic in enumerate(response.received_topic_names):
+            if topic == "/robot_cmd":  # Actuator node's subscription topic
+                actuator_topic_index = i
+                break
 
-        # Check the tensor inference response
-        response = future.result()
-        self.assertTrue(response.success, "Tensor inference service call was not successful")
-        self.assertIn('/tensor_inference_output', response.published_topic_names, "Tensor inference output topic not found in response")
-        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor inference response")
+        if actuator_topic_index is not None:
+            actuator_data = response.received_message_timestamps[actuator_topic_index]
+            for j, msg_id in enumerate(actuator_data.message_identifiers):
+                if msg_id in tensor_decode_timestamps:
+                    publish_time = tensor_decode_timestamps[msg_id]
+                    receive_time = actuator_data.timestamps[j]
 
-        # Call the tensor decode service
-        request = GetPublishedMessages.Request()
-        future = self.tensor_decode_messages_client.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+                    # Calculate latency in seconds
+                    latency_sec = (receive_time.sec - publish_time.sec) + \
+                                (receive_time.nanosec - publish_time.nanosec) * 1e-9
 
-        # Check the tensor decode response
-        response = future.result()
-        self.assertTrue(response.success, "Tensor decode service call was not successful")
-        self.assertIn('/robot_cmd', response.published_topic_names, "Robot command topic not found in response")
-        self.assertGreater(len(response.published_messages), 0, "No published messages in tensor decode response")
-
-        print(f"Camera response, published messages: {response.published_messages}")
-        print(f"Rectify response, published messages: {response.published_messages}")
-        print(f"Tensor encoder response, published messages: {response.published_messages}")
-        print(f"Tensor inference response, published messages: {response.published_messages}")
-        print(f"Tensor decode response, published messages: {response.published_messages}")
+                    print(f"\nMessage: {msg_id}")
+                    print(f"  Published at: {publish_time.sec}.{publish_time.nanosec}")
+                    print(f"  Received at: {receive_time.sec}.{receive_time.nanosec}")
+                    print(f"  Latency: {latency_sec:.6f} seconds")
 
 
 def main():

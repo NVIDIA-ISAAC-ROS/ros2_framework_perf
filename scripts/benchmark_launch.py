@@ -350,86 +350,144 @@ class TestEmitterNode(unittest.TestCase):
 
     def test_get_published_messages_service(self):
         """Test the get_published_messages service."""
-        # Wait for the service to be available
-        self.assertTrue(
-            self.message_clients['actuator_node'].wait_for_service(timeout_sec=5.0),
-            "get_published_messages service not available"
-        )
+        # Wait for 2 seconds to let the nodes publish messages
+        time.sleep(2.0)
 
-        time.sleep(5.0)
+        # Dictionary to store published messages by node
+        published_messages_by_node = {}
 
-        # Call the service
-        request = GetPublishedMessages.Request()
-        future = self.message_clients['actuator_node'].call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
+        # Collect messages from all nodes
+        for node_name in self.node_names:
+            print(f"\nCollecting messages from {node_name}...")
+            self.assertTrue(
+                self.message_clients[node_name].wait_for_service(timeout_sec=5.0),
+                f"get_published_messages service not available for {node_name}"
+            )
 
-        # Get the response
-        response = future.result()
-        self.assertTrue(response.success, "Service call failed")
+            # Call the service
+            request = GetPublishedMessages.Request()
+            future = self.message_clients[node_name].call_async(request)
+            rclpy.spin_until_future_complete(self.node, future)
 
-        # Print published messages for each topic
-        print("\nPublished Messages:")
-        for i, topic in enumerate(response.published_topic_names):
-            print(f"\nTopic: {topic}")
-            for msg in response.published_messages:
-                if msg.originator == topic.split('/')[0]:  # Get node name from topic
-                    print(f"  Message: {msg.identifier}")
-                    print(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}")
+            # Get the response
+            response = future.result()
+            self.assertTrue(response.success, f"Service call failed for {node_name}")
 
-        # Print received messages for each topic
-        print("\nReceived Messages:")
-        for i, topic in enumerate(response.received_topic_names):
-            print(f"\nTopic: {topic}")
-            for j, msg_id in enumerate(response.received_message_timestamps[i].message_identifiers):
-                timestamp = response.received_message_timestamps[i].timestamps[j]
-                print(f"  Message: {msg_id}")
-                print(f"  Timestamp: {timestamp.sec}.{timestamp.nanosec}")
+            # Store published messages for this node
+            published_messages_by_node[node_name] = {
+                'published_messages': response.published_messages,
+                'published_topics': response.published_topic_names,
+                'received_messages': response.received_message_timestamps,
+                'received_topics': response.received_topic_names
+            }
 
-        # Analyze latency between tensor decode and actuator nodes
-        print("\nLatency Analysis (Tensor Decode -> Actuator):")
+            # Print summary for this node
+            print(f"\n{node_name} Summary:")
+            print(f"Published Topics: {response.published_topic_names}")
+            print(f"Received Topics: {response.received_topic_names}")
+            print(f"Number of Published Messages: {len(response.published_messages)}")
+            for topic in response.received_topic_names:
+                topic_index = response.received_topic_names.index(topic)
+                msg_count = len(response.received_message_timestamps[topic_index].message_identifiers)
+                print(f"Number of Messages Received on {topic}: {msg_count}")
 
-        # Create a map of message IDs to their publish timestamps from tensor decode node
-        tensor_decode_timestamps = {}
-        print("\nTensor Decode Published Messages:")
-        for msg in response.published_messages:
-            print(f"  Message: {msg.originator} {msg.identifier}")
-            if msg.originator == "tensor_decode_node":
-                print(f"  Message: {msg.identifier}")
+        # Now we can analyze the message flow between nodes
+        print("\nMessage Flow Analysis:")
+        for node_name, data in published_messages_by_node.items():
+            print(f"\n{node_name}:")
+            print("Published Messages:")
+            for msg in data['published_messages']:
+                print(f"  ID: {msg.identifier}")
                 print(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}")
-                tensor_decode_timestamps[msg.identifier] = msg.publish_timestamp
 
-        # Find actuator node's received messages
+            print("\nReceived Messages:")
+            for i, topic in enumerate(data['received_topics']):
+                timestamps = data['received_messages'][i]
+                print(f"  Topic: {topic}")
+                for j, msg_id in enumerate(timestamps.message_identifiers):
+                    timestamp = timestamps.timestamps[j]
+                    print(f"    Message: {msg_id}")
+                    print(f"    Timestamp: {timestamp.sec}.{timestamp.nanosec}")
+
+        # Now we can analyze the latency between camera and actuator nodes
+        print("\nLatency Analysis (End-to-End Message Chain):")
+
+        # Get actuator received messages
+        actuator_data = published_messages_by_node['actuator_node']
         actuator_topic_index = None
-        print("\nActuator Received Messages:")
-        for i, topic in enumerate(response.received_topic_names):
-            if topic == "/robot_cmd":  # Actuator node's subscription topic
+        for i, topic in enumerate(actuator_data['received_topics']):
+            if topic == "/robot_cmd":
                 actuator_topic_index = i
-                actuator_data = response.received_message_timestamps[i]
-                print(f"Found actuator topic at index {i}")
-                for j, msg_id in enumerate(actuator_data.message_identifiers):
-                    timestamp = actuator_data.timestamps[j]
-                    print(f"  Message: {msg_id}")
-                    print(f"  Timestamp: {timestamp.sec}.{timestamp.nanosec}")
                 break
 
         if actuator_topic_index is not None:
-            actuator_data = response.received_message_timestamps[actuator_topic_index]
-            print("\nMatching messages:")
-            for j, msg_id in enumerate(actuator_data.message_identifiers):
-                if msg_id in tensor_decode_timestamps:
-                    publish_time = tensor_decode_timestamps[msg_id]
-                    receive_time = actuator_data.timestamps[j]
+            actuator_msgs = actuator_data['received_messages'][actuator_topic_index]
+            latencies = []
 
-                    # Calculate latency in seconds
-                    latency_sec = (receive_time.sec - publish_time.sec) + \
-                                (receive_time.nanosec - publish_time.nanosec) * 1e-9
+            print("\nActuator Node Message Trees:")
+            for j, msg_id in enumerate(actuator_msgs.message_identifiers):
+                print(f"\nMessage Tree for Actuator Message: {msg_id}")
 
-                    print(f"\nMessage: {msg_id}")
-                    print(f"  Published at: {publish_time.sec}.{publish_time.nanosec}")
-                    print(f"  Received at: {receive_time.sec}.{receive_time.nanosec}")
-                    print(f"  Latency: {latency_sec:.6f} seconds")
-                else:
-                    print(f"\nNo matching publish timestamp found for message: {msg_id}")
+                # Find the root parent message by following the chain backwards
+                current_msg_id = msg_id
+                message_tree = []
+
+                # Start with tensor_decode_node
+                tensor_decode_msgs = published_messages_by_node['tensor_decode_node']['published_messages']
+                tensor_decode_msg = next((m for m in tensor_decode_msgs if m.identifier == current_msg_id), None)
+                if tensor_decode_msg:
+                    print(f"└── tensor_decode_node: {tensor_decode_msg.identifier}")
+                    if tensor_decode_msg.parent_messages:
+                        print("    └── tensor_inference_node: " + "\n        └── ".join(tensor_decode_msg.parent_messages))
+                        current_msg_id = tensor_decode_msg.parent_messages[0]
+
+                # Check tensor_inference_node
+                if current_msg_id:
+                    tensor_inference_msgs = published_messages_by_node['tensor_inference_node']['published_messages']
+                    tensor_inference_msg = next((m for m in tensor_inference_msgs if m.identifier == current_msg_id), None)
+                    if tensor_inference_msg and tensor_inference_msg.parent_messages:
+                        print("        └── tensor_encoder_node: " + "\n            └── ".join(tensor_inference_msg.parent_messages))
+                        current_msg_id = tensor_inference_msg.parent_messages[0]
+
+                # Check tensor_encoder_node
+                if current_msg_id:
+                    tensor_encoder_msgs = published_messages_by_node['tensor_encoder_node']['published_messages']
+                    tensor_encoder_msg = next((m for m in tensor_encoder_msgs if m.identifier == current_msg_id), None)
+                    if tensor_encoder_msg and tensor_encoder_msg.parent_messages:
+                        print("            └── rectify_node: " + "\n                └── ".join(tensor_encoder_msg.parent_messages))
+                        current_msg_id = tensor_encoder_msg.parent_messages[0]
+
+                # Check rectify_node
+                if current_msg_id:
+                    rectify_msgs = published_messages_by_node['rectify_node']['published_messages']
+                    rectify_msg = next((m for m in rectify_msgs if m.identifier == current_msg_id), None)
+                    if rectify_msg and rectify_msg.parent_messages:
+                        print("                └── camera_node: " + "\n                    └── ".join(rectify_msg.parent_messages))
+                        current_msg_id = rectify_msg.parent_messages[0]
+
+                # Check camera_node
+                if current_msg_id:
+                    camera_msgs = published_messages_by_node['camera_node']['published_messages']
+                    camera_msg = next((m for m in camera_msgs if m.identifier == current_msg_id), None)
+                    if camera_msg and camera_msg.parent_messages:
+                        print("                    └── camera_node parents: " + "\n                        └── ".join(camera_msg.parent_messages))
+
+            if latencies:
+                latencies.sort()
+                min_latency = latencies[0]
+                max_latency = latencies[-1]
+                mean_latency = sum(latencies) / len(latencies)
+                median_latency = latencies[len(latencies) // 2] if len(latencies) % 2 == 1 else \
+                               (latencies[len(latencies) // 2 - 1] + latencies[len(latencies) // 2]) / 2
+
+                print("\nLatency Statistics:")
+                print(f"  Number of Messages: {len(latencies)}")
+                print(f"  Minimum Latency: {min_latency:.6f} seconds")
+                print(f"  Maximum Latency: {max_latency:.6f} seconds")
+                print(f"  Mean Latency: {mean_latency:.6f} seconds")
+                print(f"  Median Latency: {median_latency:.6f} seconds")
+            else:
+                print("\nNo complete message chains found")
 
 
 def main():

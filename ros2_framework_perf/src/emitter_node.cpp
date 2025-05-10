@@ -127,6 +127,15 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           auto now = this->now();
           RCLCPP_INFO(this->get_logger(), "Received message on topic %s: %s with timestamp %f.%ld",
             sub_config.topic.c_str(), msg->info.identifier.c_str(), now.seconds(), now.nanoseconds());
+
+          // Store the received message directly
+          auto timestamp = builtin_interfaces::msg::Time();
+          timestamp.sec = now.seconds();
+          timestamp.nanosec = now.nanoseconds();
+          received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
+          received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
+
+          // Then handle any triggers
           this->handle_subscription_message(sub_config.topic, sub_config, msg);
         });
       RCLCPP_INFO(get_logger(), "Created standalone subscriber for topic %s", sub_config.topic.c_str());
@@ -149,11 +158,26 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       setup_synchronizer(config.topic_name, msg_config, subs);
     } else if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
       const auto& timer_config = std::get<TimerTriggerConfig>(config.trigger);
-      // Check if this message's topic is in the subscription topics list
+      // Set up subscribers for each subscription topic
       for (const auto& sub_config : timer_config.subscription_topics) {
-        if (sub_config.topic == config.topic_name) {
-          handle_subscription_message(config.topic_name, sub_config, nullptr);
-        }
+        // Create subscriber for this topic
+        subscribers_[sub_config.topic] = create_subscription<ros2_framework_perf_interfaces::msg::MessageWithPayload>(
+          sub_config.topic,
+          rclcpp::QoS(10).reliable().durability_volatile(),
+          [this, sub_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg) {
+            // Store received message
+            auto now = this->now();
+            auto timestamp = builtin_interfaces::msg::Time();
+            timestamp.sec = now.seconds();
+            timestamp.nanosec = now.nanoseconds();
+
+            received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
+            received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
+
+            RCLCPP_INFO(get_logger(), "Received message on topic %s: %s",
+              sub_config.topic.c_str(), msg->info.identifier.c_str());
+          });
+        RCLCPP_INFO(get_logger(), "Created subscriber for topic %s", sub_config.topic.c_str());
       }
     }
   }
@@ -357,6 +381,7 @@ void EmitterNode::handle_timer_trigger(
 
   message.info.publish_timestamp.sec = current_time.seconds();
   message.info.publish_timestamp.nanosec = current_time.nanoseconds();
+  message.info.topic_name = topic_name;
   message.info.type = "std_msgs/String";
   message.info.sequence_number = sequence_number_++;
   message.info.originator = this->node_name_;
@@ -433,7 +458,7 @@ void EmitterNode::handle_subscription_message(
 
 void EmitterNode::handle_message_received_trigger(
   const std::string& topic_name,
-  [[maybe_unused]] const MessageReceivedTriggerConfig& config,
+  const MessageReceivedTriggerConfig& config,
   const std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr>& msgs)
 {
   rclcpp::Time current_time = this->now();
@@ -445,6 +470,7 @@ void EmitterNode::handle_message_received_trigger(
   auto message = ros2_framework_perf_interfaces::msg::MessageWithPayload();
   message.header.stamp = timestamp;
   message.info.publish_timestamp = timestamp;
+  message.info.topic_name = topic_name;
   message.info.type = "std_msgs/String";
   message.info.sequence_number = sequence_number_++;
   message.info.originator = this->node_name_;
@@ -649,6 +675,16 @@ void EmitterNode::setup_synchronizer(
   if (subs.size() == 1) {
     subs[0]->registerCallback(
       [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {
+        // Store received message immediately
+        auto now = this->now();
+        auto timestamp = builtin_interfaces::msg::Time();
+        timestamp.sec = now.seconds();
+        timestamp.nanosec = now.nanoseconds();
+
+        received_messages_by_topic_[msg->info.topic_name].timestamps.push_back(timestamp);
+        received_messages_by_topic_[msg->info.topic_name].message_identifiers.push_back(msg->info.identifier);
+
+        // Handle trigger
         std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
         msgs.push_back(msg);
         this->handle_message_received_trigger(topic_name, msg_config, msgs);
@@ -660,6 +696,21 @@ void EmitterNode::setup_synchronizer(
   if (subs.size() < 2 || subs.size() > 4) {
     RCLCPP_ERROR(get_logger(), "Synchronizer requires between 2 and 4 topics, got %zu", subs.size());
     return;
+  }
+
+  // Register immediate storage callback for each subscriber
+  for (const auto& sub : subs) {
+    sub->registerCallback(
+      [this](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {
+        // Store received message immediately
+        auto now = this->now();
+        auto timestamp = builtin_interfaces::msg::Time();
+        timestamp.sec = now.seconds();
+        timestamp.nanosec = now.nanoseconds();
+
+        received_messages_by_topic_[msg->info.topic_name].timestamps.push_back(timestamp);
+        received_messages_by_topic_[msg->info.topic_name].message_identifiers.push_back(msg->info.identifier);
+      });
   }
 
   // Connect all subscribers at once based on number of topics

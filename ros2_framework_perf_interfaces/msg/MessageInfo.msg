@@ -20,6 +20,9 @@
 # Message timestamp
 builtin_interfaces/Time publish_timestamp
 
+# Publish topic name
+string topic_name
+
 # Message type
 string type
 

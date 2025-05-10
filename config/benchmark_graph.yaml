@@ -12,7 +12,7 @@ nodes:
       yaml_config: |
         timer_groups:
           - name: "camera"
-            frequency: 100.0
+            frequency: 30.0
         publishers:
           - topic_name: "/camera_image_left"
             message_size: 1024
@@ -54,7 +54,7 @@ nodes:
             message_type: "std_msgs/String"
             trigger:
               type: "timer"
-              frequency: 10.0
+              frequency: 500.0
               subscription_topics:
                 - topic_name: "/camera_image_left_rectified"
                   mode: "window"
@@ -112,4 +112,4 @@ nodes:
             message_type: "sensor_msgs/JointState"
             trigger:
               type: "timer"
-              frequency: 1.0
+              frequency: 500.0

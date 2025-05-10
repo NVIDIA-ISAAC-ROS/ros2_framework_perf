@@ -10,7 +10,7 @@ import yaml
 from pathlib import Path
 
 
-def calculate_timestamp_deltas(node_data, topic_name, output_file, node_name):
+def calculate_timestamp_deltas(node_data, topic_name, output_file, node_name, expected_frequency=None):
     """Calculate and print statistics for timestamp deltas between received messages.
 
     Args:
@@ -18,6 +18,7 @@ def calculate_timestamp_deltas(node_data, topic_name, output_file, node_name):
         topic_name: Name of the topic to analyze
         output_file: File object to write analysis to
         node_name: Name of the node being analyzed
+        expected_frequency: Expected frequency in Hz from configuration
     """
     topic_index = None
 
@@ -69,18 +70,20 @@ def calculate_timestamp_deltas(node_data, topic_name, output_file, node_name):
 
     # Write statistics to file
     output_file.write(f"\nTimestamp Delta Statistics for {node_name} receiving {topic_name} messages:\n")
-    output_file.write(f"  Minimum delta: {min_delta:.6f} seconds\n")
-    output_file.write(f"  Maximum delta: {max_delta:.6f} seconds\n")
-    output_file.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
-    output_file.write(f"  Median delta: {median_delta:.6f} seconds\n")
-    output_file.write(f"  Standard deviation: {stddev:.6f} seconds\n")
-
-    # Write frequency statistics
-    output_file.write(f"\nProjected Frequency Statistics:\n")
-    output_file.write(f"  Minimum frequency: {min_freq:.2f} Hz\n")
-    output_file.write(f"  Maximum frequency: {max_freq:.2f} Hz\n")
-    output_file.write(f"  Mean frequency: {mean_freq:.2f} Hz\n")
-    output_file.write(f"  Median frequency: {median_freq:.2f} Hz\n")
+    if expected_frequency is not None:
+        expected_delta = 1.0 / expected_frequency
+        output_file.write(f"  Expected delta: {expected_delta:.6f} seconds (from {expected_frequency} Hz)\n")
+        output_file.write(f"  Minimum delta: {min_delta:.6f} seconds (delta: |{abs(min_delta - expected_delta):.6f}|s)\n")
+        output_file.write(f"  Maximum delta: {max_delta:.6f} seconds (delta: |{abs(max_delta - expected_delta):.6f}|s)\n")
+        output_file.write(f"  Mean delta: {mean_delta:.6f} seconds (delta: |{abs(mean_delta - expected_delta):.6f}|s)\n")
+        output_file.write(f"  Median delta: {median_delta:.6f} seconds (delta: |{abs(median_delta - expected_delta):.6f}|s)\n")
+        output_file.write(f"  Standard deviation: {stddev:.6f} seconds\n")
+    else:
+        output_file.write(f"  Minimum delta: {min_delta:.6f} seconds\n")
+        output_file.write(f"  Maximum delta: {max_delta:.6f} seconds\n")
+        output_file.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
+        output_file.write(f"  Median delta: {median_delta:.6f} seconds\n")
+        output_file.write(f"  Standard deviation: {stddev:.6f} seconds\n")
 
 
 def print_parent_chain(msg_id, node_name, message_data, receive_time_sec, indent="", output_file=None):
@@ -134,7 +137,7 @@ def load_benchmark_config():
     return config
 
 
-def find_publisher_frequency(node_config, target_topic, config, visited_nodes=None):
+def find_expected_frequency(node_config, target_topic, config, visited_nodes=None):
     """Find the expected frequency of a publisher for a given topic.
 
     Args:
@@ -174,13 +177,13 @@ def find_publisher_frequency(node_config, target_topic, config, visited_nodes=No
                     frequencies = []
                     for source_topic in trigger['topics']:
                         # Find the node that publishes to this topic
-                        for source_node_name, source_node_config in config['nodes'].items():
+                        for _, source_node_config in config['nodes'].items():
                             source_yaml = yaml.safe_load(source_node_config['config']['yaml_config'])
                             if 'publishers' in source_yaml:
                                 for source_pub in source_yaml['publishers']:
                                     if source_pub['topic_name'] == source_topic:
                                         # Recursively find the frequency of this source
-                                        source_freq = find_publisher_frequency(
+                                        source_freq = find_expected_frequency(
                                             source_node_config,
                                             source_topic,
                                             config,
@@ -210,7 +213,7 @@ def find_topic_publishers(config, target_topic):
     publishers = {}
 
     for node_name, node_config in config['nodes'].items():
-        frequency = find_publisher_frequency(node_config, target_topic, config)
+        frequency = find_expected_frequency(node_config, target_topic, config)
         if frequency is not None:
             publishers[node_name] = frequency
 
@@ -288,9 +291,15 @@ def analyze_message_tree(raw_data_file, output_file, include_message_flow=False,
         if topic_data['topic'] == target_topic:
             output_file.write(f"Number of Messages Received on {topic_data['topic']}: {len(topic_data['messages'])}\n")
 
+    # Get expected frequency for this topic from all publishers
+    expected_frequency = None
+    if publishers:
+        # Use the minimum frequency since the node can't receive faster than the slowest publisher
+        expected_frequency = min(publishers.values())
+
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
-    calculate_timestamp_deltas(node_data, target_topic, output_file, target_node)
+    calculate_timestamp_deltas(node_data, target_topic, output_file, target_node, expected_frequency)
 
     # Analyze message flow if requested
     if include_message_flow:

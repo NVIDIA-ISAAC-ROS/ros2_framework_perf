@@ -26,11 +26,11 @@ def generate_test_description():
         plugin='ros2_framework_perf::EmitterNode',
         name='camera_node',
         parameters=[{
-            'node_name': 'CameraImager01',
+            'node_name': 'camera_node',
             'yaml_config': '''
 timer_groups:
   - name: "camera"
-    frequency: 5.0
+    frequency: 10.0
 publishers:
   - topic_name: "/camera_image_left"
     message_size: 1024
@@ -53,7 +53,7 @@ publishers:
         plugin='ros2_framework_perf::EmitterNode',
         name='rectify_node',
         parameters=[{
-            'node_name': 'RectifyNode',
+            'node_name': 'rectify_node',
             'yaml_config': '''
 publishers:
   - topic_name: "/camera_image_left_rectified"
@@ -73,14 +73,14 @@ publishers:
         plugin='ros2_framework_perf::EmitterNode',
         name='tensor_encoder_node',
         parameters=[{
-            'node_name': 'TensorEncoderNode',
+            'node_name': 'tensor_encoder_node',
             'yaml_config': '''
 publishers:
   - topic_name: "/tensor_encoder_output"
     message_size: 1024
     trigger:
       type: "timer"
-      frequency: 10.0
+      frequency: 5.0
       subscription_topics:
         - topic_name: "/camera_image_left_rectified"
           mode: "window"
@@ -94,7 +94,7 @@ publishers:
         plugin='ros2_framework_perf::EmitterNode',
         name='tensor_inference_node',
         parameters=[{
-            'node_name': 'TensorInferenceNode',
+            'node_name': 'tensor_inference_node',
             'yaml_config': '''
 publishers:
   - topic_name: "/tensor_inference_output"
@@ -113,7 +113,7 @@ publishers:
         plugin='ros2_framework_perf::EmitterNode',
         name='tensor_decode_node',
         parameters=[{
-            'node_name': 'TensorDecodeNode',
+            'node_name': 'tensor_decode_node',
             'yaml_config': '''
 publishers:
   - topic_name: "/robot_cmd"
@@ -132,7 +132,7 @@ publishers:
         plugin='ros2_framework_perf::EmitterNode',
         name='actuator_node',
         parameters=[{
-            'node_name': 'ActuatorNode',
+            'node_name': 'actuator_node',
             'yaml_config': '''
 subscriptions:
   - topic_name: "/robot_cmd"
@@ -278,26 +278,66 @@ class TestEmitterNode(unittest.TestCase):
 
         # Create service clients for each node
         self.message_clients = {}
+        service_name_by_node_name = {}
+
+        # Print all available services first
+        print("\nAvailable services in system:")
+        for service, types in self.node.get_service_names_and_types():
+            print(f"  {service}: {types}")
+
         for node_name in self.node_names:
-            print(f"Creating message client for {node_name}")
+            # Match exactly how the C++ code constructs the service name: "/" + get_name() + "/get_published_messages"
+            service_name = f"/{node_name}/get_published_messages"  # No extra spaces, exact string construction
+            print(f"\nTrying to connect to service: {service_name}")
+            service_name_by_node_name[node_name] = service_name
             self.message_clients[node_name] = self.node.create_client(
                 GetPublishedMessages,
-                f'/{node_name}/get_published_messages'
+                service_name
             )
 
         # Wait for all services to be available
-        for node_name, client in self.message_clients.items():
-            print(f"Waiting for {node_name} service...")
-            service_ready = False
-            start_time = time.time()
-            while not service_ready and (time.time() - start_time) < 10.0:  # Add timeout
-                service_ready = client.wait_for_service(timeout_sec=1.0)
-                if not service_ready:
-                    self.node.get_logger().info(f'Still waiting for {node_name} get_published_messages service...')
-            if not service_ready:
-                self.node.get_logger().error(f'Failed to get {node_name} service after 10 seconds')
-            else:
-                self.node.get_logger().info(f'Successfully got {node_name} service')
+        print("\nWaiting for services to be available...")
+        start_time = time.time()
+        services_ready = {node_name: False for node_name in self.node_names}
+
+        while not all(services_ready.values()) and (time.time() - start_time) < 10.0:
+            # Check each service in round-robin fashion
+            for node_name, client in self.message_clients.items():
+                if not services_ready[node_name]:
+                    try:
+                        # Use a very short timeout to check service availability
+                        services_ready[node_name] = client.wait_for_service(timeout_sec=0.1)
+                        if services_ready[node_name]:
+                            print(f"Service {service_name_by_node_name[node_name]} is ready!")
+                    except Exception as e:
+                        print(f"Error checking {node_name} service: {str(e)}")
+
+            # Print status of services not yet ready
+            not_ready = [node_name for node_name, ready in services_ready.items() if not ready]
+            if not_ready:
+                print(f"\nServices not ready after {time.time() - start_time:.1f}s:")
+                for node_name in not_ready:
+                    print(f"  {service_name_by_node_name[node_name]}")
+                    # Print service type for debugging
+                    for service, types in self.node.get_service_names_and_types():
+                        if service == service_name_by_node_name[node_name]:
+                            print(f"    Type: {types}")
+
+            # Small sleep to prevent tight loop
+            time.sleep(0.1)
+
+        # Final status check
+        if all(services_ready.values()):
+            print("\nAll services are ready!")
+        else:
+            print("\nSome services failed to become ready:")
+            for node_name, ready in services_ready.items():
+                if not ready:
+                    print(f"  {service_name_by_node_name[node_name]}")
+                    # Print service type for debugging
+                    for service, types in self.node.get_service_names_and_types():
+                        if service == service_name_by_node_name[node_name]:
+                            print(f"    Type: {types}")
 
     def tearDown(self):
         self.lifecycle_node.deactivate_nodes()
@@ -316,10 +356,12 @@ class TestEmitterNode(unittest.TestCase):
             "get_published_messages service not available"
         )
 
+        time.sleep(5.0)
+
         # Call the service
         request = GetPublishedMessages.Request()
         future = self.message_clients['actuator_node'].call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        rclpy.spin_until_future_complete(self.node, future)
 
         # Get the response
         response = future.result()
@@ -348,19 +390,31 @@ class TestEmitterNode(unittest.TestCase):
 
         # Create a map of message IDs to their publish timestamps from tensor decode node
         tensor_decode_timestamps = {}
+        print("\nTensor Decode Published Messages:")
         for msg in response.published_messages:
+            print(f"  Message: {msg.originator} {msg.identifier}")
             if msg.originator == "tensor_decode_node":
+                print(f"  Message: {msg.identifier}")
+                print(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}")
                 tensor_decode_timestamps[msg.identifier] = msg.publish_timestamp
 
         # Find actuator node's received messages
         actuator_topic_index = None
+        print("\nActuator Received Messages:")
         for i, topic in enumerate(response.received_topic_names):
             if topic == "/robot_cmd":  # Actuator node's subscription topic
                 actuator_topic_index = i
+                actuator_data = response.received_message_timestamps[i]
+                print(f"Found actuator topic at index {i}")
+                for j, msg_id in enumerate(actuator_data.message_identifiers):
+                    timestamp = actuator_data.timestamps[j]
+                    print(f"  Message: {msg_id}")
+                    print(f"  Timestamp: {timestamp.sec}.{timestamp.nanosec}")
                 break
 
         if actuator_topic_index is not None:
             actuator_data = response.received_message_timestamps[actuator_topic_index]
+            print("\nMatching messages:")
             for j, msg_id in enumerate(actuator_data.message_identifiers):
                 if msg_id in tensor_decode_timestamps:
                     publish_time = tensor_decode_timestamps[msg_id]
@@ -374,6 +428,8 @@ class TestEmitterNode(unittest.TestCase):
                     print(f"  Published at: {publish_time.sec}.{publish_time.nanosec}")
                     print(f"  Received at: {receive_time.sec}.{receive_time.nanosec}")
                     print(f"  Latency: {latency_sec:.6f} seconds")
+                else:
+                    print(f"\nNo matching publish timestamp found for message: {msg_id}")
 
 
 def main():

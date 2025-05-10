@@ -201,7 +201,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
 
   // Create service
   get_published_messages_service_ = create_service<ros2_framework_perf_interfaces::srv::GetPublishedMessages>(
-    "get_published_messages",
+    "/" + std::string(get_name()) + "/get_published_messages",
     std::bind(&EmitterNode::handle_get_published_messages, this, std::placeholders::_1, std::placeholders::_2));
 
   RCLCPP_INFO(get_logger(), "EmitterNode configured successfully");

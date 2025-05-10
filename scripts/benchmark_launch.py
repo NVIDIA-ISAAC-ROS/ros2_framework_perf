@@ -329,11 +329,15 @@ class TestEmitterNode(unittest.TestCase):
                 ]
             }
 
+        # Load benchmark configuration
+        config = load_node_configs()
+
         # Add metadata
         metadata = {
             'timestamp': datetime.now().isoformat(),
             'node_names': self.node_names,
-            'profiling_config': self.profiling_config
+            'profiling_config': self.profiling_config,
+            'benchmark_config': config  # Include the full benchmark configuration
         }
 
         # Write to file

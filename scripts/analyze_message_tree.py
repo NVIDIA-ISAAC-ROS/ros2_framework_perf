@@ -6,6 +6,8 @@ from datetime import datetime
 import time
 from tqdm import tqdm
 import sys
+import yaml
+from pathlib import Path
 
 
 def calculate_timestamp_deltas(node_data, topic_name, output_file, node_name):
@@ -121,6 +123,100 @@ def analyze_message_flow(message_data, output_file):
                 output_file.write(f"    Timestamp: {msg['timestamp']['sec']}.{msg['timestamp']['nanosec']}\n")
 
 
+def load_benchmark_config():
+    """Load the benchmark graph configuration."""
+    # Get the package directory
+    package_dir = Path(__file__).parent.parent
+    config_path = package_dir / 'config' / 'benchmark_graph.yaml'
+
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def find_publisher_frequency(node_config, target_topic, config, visited_nodes=None):
+    """Find the expected frequency of a publisher for a given topic.
+
+    Args:
+        node_config: Dictionary containing node configuration
+        target_topic: Name of the topic to find frequency for
+        config: Full benchmark configuration for tracing dependencies
+        visited_nodes: Set of nodes already visited to prevent cycles
+
+    Returns:
+        float: Expected frequency in Hz, or None if not found
+    """
+    if visited_nodes is None:
+        visited_nodes = set()
+
+    node_name = node_config['name']
+    if node_name in visited_nodes:
+        return None
+    visited_nodes.add(node_name)
+
+    yaml_config = yaml.safe_load(node_config['config']['yaml_config'])
+
+    # Check timer groups first
+    if 'timer_groups' in yaml_config:
+        for timer_group in yaml_config['timer_groups']:
+            if 'frequency' in timer_group:
+                return timer_group['frequency']
+
+    # Check publishers
+    if 'publishers' in yaml_config:
+        for publisher in yaml_config['publishers']:
+            if publisher['topic_name'] == target_topic:
+                trigger = publisher['trigger']
+                if trigger['type'] == 'timer' and 'frequency' in trigger:
+                    return trigger['frequency']
+                elif trigger['type'] == 'message_received':
+                    # For message_received triggers, trace back to the source topics
+                    frequencies = []
+                    for source_topic in trigger['topics']:
+                        # Find the node that publishes to this topic
+                        for source_node_name, source_node_config in config['nodes'].items():
+                            source_yaml = yaml.safe_load(source_node_config['config']['yaml_config'])
+                            if 'publishers' in source_yaml:
+                                for source_pub in source_yaml['publishers']:
+                                    if source_pub['topic_name'] == source_topic:
+                                        # Recursively find the frequency of this source
+                                        source_freq = find_publisher_frequency(
+                                            source_node_config,
+                                            source_topic,
+                                            config,
+                                            visited_nodes.copy()
+                                        )
+                                        if source_freq is not None:
+                                            frequencies.append(source_freq)
+
+                    # If we found frequencies from all sources, return the minimum
+                    # (as the node can't publish faster than its slowest input)
+                    if frequencies:
+                        return min(frequencies)
+
+    return None
+
+
+def find_topic_publishers(config, target_topic):
+    """Find all nodes that publish to the target topic and their frequencies.
+
+    Args:
+        config: Dictionary containing benchmark configuration
+        target_topic: Name of the topic to find publishers for
+
+    Returns:
+        dict: Dictionary mapping node names to their expected frequencies
+    """
+    publishers = {}
+
+    for node_name, node_config in config['nodes'].items():
+        frequency = find_publisher_frequency(node_config, target_topic, config)
+        if frequency is not None:
+            publishers[node_name] = frequency
+
+    return publishers
+
+
 def analyze_message_tree(raw_data_file, output_file, include_message_flow=False, include_message_tree=False, target_node=None, target_topic=None):
     """Analyze and write message tree to file.
 
@@ -139,6 +235,7 @@ def analyze_message_tree(raw_data_file, output_file, include_message_flow=False,
 
     message_data = data['message_data']
     metadata = data['metadata']
+    benchmark_config = metadata['benchmark_config']
 
     # Validate target node
     if not target_node:
@@ -158,6 +255,9 @@ def analyze_message_tree(raw_data_file, output_file, include_message_flow=False,
         print(f"Available topics for {target_node}: {[topic_data['topic'] for topic_data in node_data['received_messages']]}")
         return
 
+    # Find expected frequencies for the target topic
+    publishers = find_topic_publishers(benchmark_config, target_topic)
+
     # Filter to just the target node
     message_data = {target_node: message_data[target_node]}
 
@@ -167,6 +267,15 @@ def analyze_message_tree(raw_data_file, output_file, include_message_flow=False,
     output_file.write(f"Analysis of data collected at: {metadata['timestamp']}\n")
     output_file.write(f"Node analyzed: {target_node}\n")
     output_file.write(f"Topic analyzed: {target_topic}\n")
+
+    # Write expected frequencies
+    if publishers:
+        output_file.write("\nExpected Publisher Frequencies:\n")
+        for node_name, frequency in publishers.items():
+            output_file.write(f"  {node_name}: {frequency} Hz\n")
+    else:
+        output_file.write("\nNo direct publishers found for this topic in configuration\n")
+
     output_file.write("\n")
 
     # Write summary for the node

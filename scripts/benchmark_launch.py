@@ -2,7 +2,9 @@ import os
 import time
 import unittest
 import json
+import yaml
 from datetime import datetime
+from pathlib import Path
 
 import launch
 from launch import LaunchDescription
@@ -18,172 +20,49 @@ from ros2_framework_perf_interfaces.msg import MessageWithPayload
 from ros2_framework_perf_interfaces.srv import GetPublishedMessages
 
 
+def load_node_configs():
+    """Load node configurations from YAML file."""
+    # Get the package directory
+    package_dir = Path(__file__).parent.parent
+    config_path = package_dir / 'config' / 'benchmark_graph.yaml'
+
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def create_composable_node(node_config):
+    """Create a ComposableNode from node configuration."""
+    return ComposableNode(
+        package="ros2_framework_perf",
+        plugin="ros2_framework_perf::EmitterNode",
+        name=node_config['name'],
+        parameters=[node_config['config']]
+    )
+
+
 @pytest.mark.launch_test
 def generate_test_description():
     """Generate launch description for testing EmitterNode."""
+    # Load node configurations
+    config = load_node_configs()
+    node_configs = config['nodes']
 
-    # Create EmitterNode
-    camera_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='camera_node',
-        parameters=[{
-            'node_name': 'camera_node',
-            'yaml_config': '''
-timer_groups:
-  - name: "camera"
-    frequency: 30.0
-publishers:
-  - topic_name: "/camera_image_left"
-    message_size: 1024
-    message_type: "sensor_msgs/Image"
-    trigger:
-      type: "timer"
-      timer_group: "camera"
-  - topic_name: "/camera_info_left"
-    message_size: 1024
-    message_type: "sensor_msgs/CameraInfo"
-    trigger:
-      type: "timer"
-      timer_group: "camera"
-'''
-        }]
-    )
-    print("Camera node configuration:")
-    print(camera_node_composable.parameters[0].get('yaml_config', ''))
+    # Create composable nodes from configurations
+    composable_nodes = []
+    for node_name, node_config in node_configs.items():
+        composable_node = create_composable_node(node_config)
+        composable_nodes.append(composable_node)
+        print(f"{node_name} configuration:")
+        print(node_config['config']['yaml_config'])
 
-    rectify_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='rectify_node',
-        parameters=[{
-            'node_name': 'rectify_node',
-            'yaml_config': '''
-publishers:
-  - topic_name: "/camera_image_left_rectified"
-    message_size: 2048
-    message_type: "sensor_msgs/Image"
-    trigger:
-      type: "message_received"
-      mode: "exact_time"
-      topics:
-        - "/camera_image_left"
-        - "/camera_info_left"
-'''
-        }]
-    )
-
-    tensor_encoder_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='tensor_encoder_node',
-        parameters=[{
-            'node_name': 'tensor_encoder_node',
-            'yaml_config': '''
-publishers:
-  - topic_name: "/tensor_encoder_output"
-    message_size: 1024
-    message_type: "std_msgs/String"
-    trigger:
-      type: "timer"
-      frequency: 500.0
-      subscription_topics:
-        - topic_name: "/camera_image_left_rectified"
-          mode: "window"
-          window_time: 0.1
-        - topic_name: "/joint_states"
-          mode: "window"
-          window_time: 0.1
-'''
-        }]
-    )
-
-    tensor_inference_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='tensor_inference_node',
-        parameters=[{
-            'node_name': 'tensor_inference_node',
-            'yaml_config': '''
-publishers:
-  - topic_name: "/tensor_inference_output"
-    message_size: 2048
-    message_type: "std_msgs/String"
-    trigger:
-      type: "message_received"
-      mode: "exact_time"
-      topics:
-        - "/tensor_encoder_output"
-'''
-        }]
-    )
-
-    tensor_decode_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='tensor_decode_node',
-        parameters=[{
-            'node_name': 'tensor_decode_node',
-            'yaml_config': '''
-publishers:
-  - topic_name: "/robot_cmd"
-    message_size: 512
-    message_type: "std_msgs/String"
-    trigger:
-      type: "message_received"
-      mode: "exact_time"
-      topics:
-        - "/tensor_inference_output"
-'''
-        }]
-    )
-
-    actuator_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='actuator_node',
-        parameters=[{
-            'node_name': 'actuator_node',
-            'yaml_config': '''
-subscriptions:
-  - topic_name: "/robot_cmd"
-'''
-        }]
-    )
-
-    joint_state_node_composable = ComposableNode(
-        package='ros2_framework_perf',
-        plugin='ros2_framework_perf::EmitterNode',
-        name='joint_state_node',
-        parameters=[{
-            'node_name': 'joint_state_node',
-            'yaml_config': '''
-publishers:
-  - topic_name: "/joint_states"
-    message_size: 512
-    message_type: "sensor_msgs/JointState"
-    trigger:
-      type: "timer"
-      frequency: 500.0
-'''
-        }]
-    )
-
-    # Create container with EmitterNode
+    # Create container with all nodes
     container = ComposableNodeContainer(
         name='emitter_container',
         namespace='',
         package='rclcpp_components',
         executable='component_container',
-        composable_node_descriptions=[
-            camera_node_composable,
-            rectify_node_composable,
-            tensor_encoder_node_composable,
-            tensor_inference_node_composable,
-            tensor_decode_node_composable,
-            actuator_node_composable,
-            joint_state_node_composable
-        ],
+        composable_node_descriptions=composable_nodes,
         output='screen'
     )
 
@@ -260,22 +139,17 @@ class TestEmitterNode(unittest.TestCase):
         rclpy.init()
         cls.node = Node('test_emitter')
 
-        # Define the set of node names
-        cls.node_names = [
-            'camera_node',
-            'rectify_node',
-            'tensor_encoder_node',
-            'tensor_inference_node',
-            'tensor_decode_node',
-            'actuator_node',
-            'joint_state_node'
-        ]
+        # Load node names from configuration
+        config = load_node_configs()
+        node_configs = config['nodes']
+        cls.node_names = list(node_configs.keys())
+        cls.profiling_config = config['profiling_config']
 
         cls.lifecycle_node = LifecycleTestNode(cls.node_names)
         cls.received_messages = []
 
         # Wait for the nodes to be ready
-        time.sleep(2.0)
+        time.sleep(cls.profiling_config['setup_wait_time'])
 
         # Configure the nodes
         print("Configuring nodes")
@@ -299,7 +173,7 @@ class TestEmitterNode(unittest.TestCase):
         self.received_messages = []
 
         # Wait for the nodes to be ready
-        time.sleep(2.0)
+        time.sleep(self.profiling_config['setup_wait_time'])
 
         # Activate the nodes
         print("Activating nodes...")
@@ -331,7 +205,7 @@ class TestEmitterNode(unittest.TestCase):
         start_time = time.time()
         services_ready = {node_name: False for node_name in self.node_names}
 
-        while not all(services_ready.values()) and (time.time() - start_time) < 10.0:
+        while not all(services_ready.values()) and (time.time() - start_time) < self.profiling_config['service_wait_timeout']:
             # Check each service in round-robin fashion
             for node_name, client in self.message_clients.items():
                 if not services_ready[node_name]:
@@ -378,28 +252,6 @@ class TestEmitterNode(unittest.TestCase):
         for client in self.message_clients.values():
             self.node.destroy_client(client)
         self.message_clients.clear()
-
-    def print_parent_chain(self, msg_id, node_name, published_messages_by_node, receive_time_sec, indent="", output_file=None):
-        # Search for the message in any node's published messages
-        msg = None
-        found_node = None
-        for candidate_node, node_data in published_messages_by_node.items():
-            candidate_msgs = node_data['published_messages']
-            msg = next((m for m in candidate_msgs if m.identifier == msg_id), None)
-            if msg:
-                found_node = candidate_node
-                break
-        if not msg:
-            output_file.write(f"{indent}{node_name}: {msg_id} (not found in any node)\n")
-            return
-        pub_time = msg.publish_timestamp.sec + msg.publish_timestamp.nanosec * 1e-9
-        latency = receive_time_sec - pub_time
-
-        output_file.write(f"{indent}{found_node}: {msg.identifier} | Publish: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec} | Latency from Actuator: {latency:.6f}s\n")
-        if msg.parent_messages:
-            for parent_id in msg.parent_messages:
-                self.print_parent_chain(parent_id, found_node, published_messages_by_node, receive_time_sec, indent + "    └── ", output_file)
-
 
     def collect_message_data(self, published_messages_by_node):
         """Collect message data from all nodes.
@@ -480,7 +332,8 @@ class TestEmitterNode(unittest.TestCase):
         # Add metadata
         metadata = {
             'timestamp': datetime.now().isoformat(),
-            'node_names': self.node_names
+            'node_names': self.node_names,
+            'profiling_config': self.profiling_config
         }
 
         # Write to file
@@ -491,8 +344,8 @@ class TestEmitterNode(unittest.TestCase):
 
     def test_get_published_messages_service(self):
         """Test the get_published_messages service and write raw data to file."""
-        # Wait for 2 seconds to let the nodes publish messages
-        time.sleep(2.0)
+        # Wait for configured time to let the nodes publish messages
+        time.sleep(self.profiling_config['data_collection_time'])
 
         # Dictionary to store published messages by node
         published_messages_by_node = {}

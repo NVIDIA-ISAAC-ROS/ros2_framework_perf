@@ -30,7 +30,7 @@ def generate_test_description():
             'yaml_config': '''
 timer_groups:
   - name: "camera"
-    frequency: 10.0
+    frequency: 30.0
 publishers:
   - topic_name: "/camera_image_left"
     message_size: 1024
@@ -84,9 +84,12 @@ publishers:
     message_type: "std_msgs/String"
     trigger:
       type: "timer"
-      frequency: 20.0
+      frequency: 500.0
       subscription_topics:
         - topic_name: "/camera_image_left_rectified"
+          mode: "window"
+          window_time: 0.1
+        - topic_name: "/joint_states"
           mode: "window"
           window_time: 0.1
 '''
@@ -146,6 +149,24 @@ subscriptions:
         }]
     )
 
+    joint_state_node_composable = ComposableNode(
+        package='ros2_framework_perf',
+        plugin='ros2_framework_perf::EmitterNode',
+        name='joint_state_node',
+        parameters=[{
+            'node_name': 'joint_state_node',
+            'yaml_config': '''
+publishers:
+  - topic_name: "/joint_states"
+    message_size: 512
+    message_type: "sensor_msgs/JointState"
+    trigger:
+      type: "timer"
+      frequency: 500.0
+'''
+        }]
+    )
+
     # Create container with EmitterNode
     container = ComposableNodeContainer(
         name='emitter_container',
@@ -158,7 +179,8 @@ subscriptions:
             tensor_encoder_node_composable,
             tensor_inference_node_composable,
             tensor_decode_node_composable,
-            actuator_node_composable
+            actuator_node_composable,
+            joint_state_node_composable
         ],
         output='screen'
     )
@@ -243,7 +265,8 @@ class TestEmitterNode(unittest.TestCase):
             'tensor_encoder_node',
             'tensor_inference_node',
             'tensor_decode_node',
-            'actuator_node'
+            'actuator_node',
+            'joint_state_node'
         ]
 
         cls.lifecycle_node = LifecycleTestNode(cls.node_names)
@@ -354,7 +377,7 @@ class TestEmitterNode(unittest.TestCase):
             self.node.destroy_client(client)
         self.message_clients.clear()
 
-    def print_parent_chain(self, msg_id, node_name, published_messages_by_node, receive_time_sec, indent=""):
+    def print_parent_chain(self, msg_id, node_name, published_messages_by_node, receive_time_sec, indent="", output_file=None):
         # Search for the message in any node's published messages
         msg = None
         found_node = None
@@ -365,27 +388,100 @@ class TestEmitterNode(unittest.TestCase):
                 found_node = candidate_node
                 break
         if not msg:
-            print(f"{indent}{node_name}: {msg_id} (not found in any node)")
+            output_file.write(f"{indent}{node_name}: {msg_id} (not found in any node)\n")
             return
         pub_time = msg.publish_timestamp.sec + msg.publish_timestamp.nanosec * 1e-9
         latency = receive_time_sec - pub_time
 
-        print(f"{indent}{found_node}: {msg.identifier} | Publish: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec} | Latency from Actuator: {latency:.6f}s")
+        output_file.write(f"{indent}{found_node}: {msg.identifier} | Publish: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec} | Latency from Actuator: {latency:.6f}s\n")
         if msg.parent_messages:
             for parent_id in msg.parent_messages:
-                self.print_parent_chain(parent_id, found_node, published_messages_by_node, receive_time_sec, indent + "    └── ")
+                self.print_parent_chain(parent_id, found_node, published_messages_by_node, receive_time_sec, indent + "    └── ", output_file)
 
-    def test_get_published_messages_service(self):
-        """Test the get_published_messages service."""
-        # Wait for 2 seconds to let the nodes publish messages
-        time.sleep(2.0)
+    def calculate_timestamp_deltas(self, published_messages_by_node, output_file):
+        """Calculate and print statistics for timestamp deltas between received messages."""
+        actuator_data = published_messages_by_node['actuator_node']
+        actuator_topic_index = None
 
-        # Dictionary to store published messages by node
-        published_messages_by_node = {}
+        # Find the /robot_cmd topic index
+        for i, topic in enumerate(actuator_data['received_topics']):
+            if topic == "/robot_cmd":
+                actuator_topic_index = i
+                break
+
+        if actuator_topic_index is None:
+            output_file.write("\nNo /robot_cmd messages found in actuator node\n")
+            return
+
+        # Get timestamps for /robot_cmd messages
+        timestamps = actuator_data['received_messages'][actuator_topic_index].timestamps
+
+        if len(timestamps) < 2:
+            output_file.write("\nNot enough messages to calculate timestamp deltas\n")
+            return
+
+        # Calculate deltas between consecutive timestamps
+        deltas = []
+        for i in range(1, len(timestamps)):
+            prev_time = timestamps[i-1].sec + timestamps[i-1].nanosec * 1e-9
+            curr_time = timestamps[i].sec + timestamps[i].nanosec * 1e-9
+            delta = curr_time - prev_time
+            deltas.append(delta)
+
+        # Calculate statistics
+        deltas.sort()
+        min_delta = deltas[0]
+        max_delta = deltas[-1]
+        mean_delta = sum(deltas) / len(deltas)
+        median_delta = deltas[len(deltas) // 2] if len(deltas) % 2 == 1 else \
+                      (deltas[len(deltas) // 2 - 1] + deltas[len(deltas) // 2]) / 2
+
+        # Calculate standard deviation
+        variance = sum((x - mean_delta) ** 2 for x in deltas) / len(deltas)
+        stddev = variance ** 0.5
+
+        # Write statistics to file
+        output_file.write("\nTimestamp Delta Statistics for /robot_cmd messages:\n")
+        output_file.write(f"  Number of deltas: {len(deltas)}\n")
+        output_file.write(f"  Minimum delta: {min_delta:.6f} seconds\n")
+        output_file.write(f"  Maximum delta: {max_delta:.6f} seconds\n")
+        output_file.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
+        output_file.write(f"  Median delta: {median_delta:.6f} seconds\n")
+        output_file.write(f"  Standard deviation: {stddev:.6f} seconds\n")
+
+    def analyze_message_flow(self, published_messages_by_node, output_file):
+        """Analyze and write message flow between nodes to file."""
+        output_file.write("\nMessage Flow Analysis:\n")
+        for node_name, data in published_messages_by_node.items():
+            output_file.write(f"\n{node_name}:\n")
+            output_file.write("Published Messages:\n")
+            for msg in data['published_messages']:
+                output_file.write(f"  ID: {msg.identifier}\n")
+                output_file.write(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}\n")
+
+            output_file.write("\nReceived Messages:\n")
+            for i, topic in enumerate(data['received_topics']):
+                timestamps = data['received_messages'][i]
+                output_file.write(f"  Topic: {topic}\n")
+                for j, msg_id in enumerate(timestamps.message_identifiers):
+                    timestamp = timestamps.timestamps[j]
+                    output_file.write(f"    Message: {msg_id}\n")
+                    output_file.write(f"    Timestamp: {timestamp.sec}.{timestamp.nanosec}\n")
+
+    def analyze_message_tree(self, published_messages_by_node, output_file, include_message_flow=False):
+        """Analyze and write message tree to file.
+
+        Args:
+            published_messages_by_node: Dictionary to store message data
+            output_file: File object to write analysis to
+            include_message_flow: Whether to include detailed message flow analysis
+        """
+        output_file.write("Message Tree Analysis\n")
+        output_file.write("===================\n\n")
 
         # Collect messages from all nodes
         for node_name in self.node_names:
-            print(f"\nCollecting messages from {node_name}...")
+            output_file.write(f"\nCollecting messages from {node_name}...\n")
             self.assertTrue(
                 self.message_clients[node_name].wait_for_service(timeout_sec=5.0),
                 f"get_published_messages service not available for {node_name}"
@@ -408,36 +504,25 @@ class TestEmitterNode(unittest.TestCase):
                 'received_topics': response.received_topic_names
             }
 
-            # Print summary for this node
-            print(f"\n{node_name} Summary:")
-            print(f"Published Topics: {response.published_topic_names}")
-            print(f"Received Topics: {response.received_topic_names}")
-            print(f"Number of Published Messages: {len(response.published_messages)}")
+            # Write summary for this node
+            output_file.write(f"\n{node_name} Summary:\n")
+            output_file.write(f"Published Topics: {response.published_topic_names}\n")
+            output_file.write(f"Received Topics: {response.received_topic_names}\n")
+            output_file.write(f"Number of Published Messages: {len(response.published_messages)}\n")
             for topic in response.received_topic_names:
                 topic_index = response.received_topic_names.index(topic)
                 msg_count = len(response.received_message_timestamps[topic_index].message_identifiers)
-                print(f"Number of Messages Received on {topic}: {msg_count}")
+                output_file.write(f"Number of Messages Received on {topic}: {msg_count}\n")
 
-        # Now we can analyze the message flow between nodes
-        print("\nMessage Flow Analysis:")
-        for node_name, data in published_messages_by_node.items():
-            print(f"\n{node_name}:")
-            print("Published Messages:")
-            for msg in data['published_messages']:
-                print(f"  ID: {msg.identifier}")
-                print(f"  Timestamp: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec}")
+        # Calculate timestamp delta statistics
+        self.calculate_timestamp_deltas(published_messages_by_node, output_file)
 
-            print("\nReceived Messages:")
-            for i, topic in enumerate(data['received_topics']):
-                timestamps = data['received_messages'][i]
-                print(f"  Topic: {topic}")
-                for j, msg_id in enumerate(timestamps.message_identifiers):
-                    timestamp = timestamps.timestamps[j]
-                    print(f"    Message: {msg_id}")
-                    print(f"    Timestamp: {timestamp.sec}.{timestamp.nanosec}")
+        # Analyze message flow if requested
+        if include_message_flow:
+            self.analyze_message_flow(published_messages_by_node, output_file)
 
         # Now we can analyze the latency between camera and actuator nodes
-        print("\nLatency Analysis (End-to-End Message Chain):")
+        output_file.write("\nLatency Analysis (End-to-End Message Chain):\n")
 
         # Get actuator received messages
         actuator_data = published_messages_by_node['actuator_node']
@@ -451,14 +536,14 @@ class TestEmitterNode(unittest.TestCase):
             actuator_msgs = actuator_data['received_messages'][actuator_topic_index]
             latencies = []
 
-            print("\nActuator Node Message Trees:")
+            output_file.write("\nActuator Node Message Trees:\n")
             for j, msg_id in enumerate(actuator_msgs.message_identifiers):
                 receive_time = actuator_msgs.timestamps[j]
                 receive_time_sec = receive_time.sec + receive_time.nanosec * 1e-9
-                print(f"\nMessage Tree for Actuator Message: {msg_id}")
-                print(f"  Receive Time: {receive_time.sec}.{receive_time.nanosec}")
+                output_file.write(f"\nMessage Tree for Actuator Message: {msg_id}\n")
+                output_file.write(f"  Receive Time: {receive_time.sec}.{receive_time.nanosec}\n")
                 # Start the chain from tensor_decode_node
-                self.print_parent_chain(msg_id, "actuator_node", published_messages_by_node, receive_time_sec, indent="└── ")
+                self.print_parent_chain(msg_id, "actuator_node", published_messages_by_node, receive_time_sec, indent="└── ", output_file=output_file)
 
             if latencies:
                 latencies.sort()
@@ -468,14 +553,30 @@ class TestEmitterNode(unittest.TestCase):
                 median_latency = latencies[len(latencies) // 2] if len(latencies) % 2 == 1 else \
                                (latencies[len(latencies) // 2 - 1] + latencies[len(latencies) // 2]) / 2
 
-                print("\nLatency Statistics:")
-                print(f"  Number of Messages: {len(latencies)}")
-                print(f"  Minimum Latency: {min_latency:.6f} seconds")
-                print(f"  Maximum Latency: {max_latency:.6f} seconds")
-                print(f"  Mean Latency: {mean_latency:.6f} seconds")
-                print(f"  Median Latency: {median_latency:.6f} seconds")
+                output_file.write("\nLatency Statistics:\n")
+                output_file.write(f"  Number of Messages: {len(latencies)}\n")
+                output_file.write(f"  Minimum Latency: {min_latency:.6f} seconds\n")
+                output_file.write(f"  Maximum Latency: {max_latency:.6f} seconds\n")
+                output_file.write(f"  Mean Latency: {mean_latency:.6f} seconds\n")
+                output_file.write(f"  Median Latency: {median_latency:.6f} seconds\n")
             else:
-                print("\nNo complete message chains found")
+                output_file.write("\nNo complete message chains found\n")
+
+    def test_get_published_messages_service(self):
+        """Test the get_published_messages service."""
+        # Wait for 2 seconds to let the nodes publish messages
+        time.sleep(2.0)
+
+        # Dictionary to store published messages by node
+        published_messages_by_node = {}
+
+        # Create output file for message tree
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        output_filename = f"message_tree_{timestamp}.txt"
+        with open(output_filename, 'w') as output_file:
+            self.analyze_message_tree(published_messages_by_node, output_file, include_message_flow=False)
+
+        print(f"Message tree has been written to {output_filename}")
 
 
 def main():

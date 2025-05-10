@@ -1,6 +1,8 @@
 import os
 import time
 import unittest
+import json
+from datetime import datetime
 
 import launch
 from launch import LaunchDescription
@@ -562,21 +564,111 @@ class TestEmitterNode(unittest.TestCase):
             else:
                 output_file.write("\nNo complete message chains found\n")
 
+    def collect_message_data(self, published_messages_by_node):
+        """Collect message data from all nodes.
+
+        Args:
+            published_messages_by_node: Dictionary to store message data
+        """
+        # Collect messages from all nodes
+        for node_name in self.node_names:
+            print(f"Collecting messages from {node_name}...")
+            self.assertTrue(
+                self.message_clients[node_name].wait_for_service(timeout_sec=5.0),
+                f"get_published_messages service not available for {node_name}"
+            )
+
+            # Call the service
+            request = GetPublishedMessages.Request()
+            future = self.message_clients[node_name].call_async(request)
+            rclpy.spin_until_future_complete(self.node, future)
+
+            # Get the response
+            response = future.result()
+            self.assertTrue(response.success, f"Service call failed for {node_name}")
+
+            # Store published messages for this node
+            published_messages_by_node[node_name] = {
+                'published_messages': response.published_messages,
+                'published_topics': response.published_topic_names,
+                'received_messages': response.received_message_timestamps,
+                'received_topics': response.received_topic_names
+            }
+
     def test_get_published_messages_service(self):
-        """Test the get_published_messages service."""
+        """Test the get_published_messages service and write raw data to file."""
         # Wait for 2 seconds to let the nodes publish messages
         time.sleep(2.0)
 
         # Dictionary to store published messages by node
         published_messages_by_node = {}
 
-        # Create output file for message tree
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        output_filename = f"message_tree_{timestamp}.txt"
-        with open(output_filename, 'w') as output_file:
-            self.analyze_message_tree(published_messages_by_node, output_file, include_message_flow=False)
+        # Collect message data from all nodes
+        self.collect_message_data(published_messages_by_node)
 
-        print(f"Message tree has been written to {output_filename}")
+        # Write raw message data to JSON file
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        raw_data_filename = f"raw_message_data_{timestamp}.json"
+        with open(raw_data_filename, 'w') as raw_data_file:
+            self.write_raw_message_data(published_messages_by_node, raw_data_file)
+        print(f"Raw message data has been written to {raw_data_filename}")
+
+    def write_raw_message_data(self, published_messages_by_node, output_file):
+        """Write raw message data to a JSON file for further processing.
+
+        Args:
+            published_messages_by_node: Dictionary containing message data
+            output_file: File object to write JSON data to
+        """
+        # Convert the data to a serializable format
+        serializable_data = {}
+
+        for node_name, node_data in published_messages_by_node.items():
+            serializable_data[node_name] = {
+                'published_messages': [
+                    {
+                        'identifier': msg.identifier,
+                        'publish_timestamp': {
+                            'sec': msg.publish_timestamp.sec,
+                            'nanosec': msg.publish_timestamp.nanosec
+                        },
+                        'parent_messages': list(msg.parent_messages)
+                    }
+                    for msg in node_data['published_messages']
+                ],
+                'published_topics': list(node_data['published_topics']),
+                'received_messages': [
+                    {
+                        'topic': topic,
+                        'messages': [
+                            {
+                                'identifier': msg_id,
+                                'timestamp': {
+                                    'sec': timestamps.timestamps[j].sec,
+                                    'nanosec': timestamps.timestamps[j].nanosec
+                                }
+                            }
+                            for j, msg_id in enumerate(timestamps.message_identifiers)
+                        ]
+                    }
+                    for i, (topic, timestamps) in enumerate(zip(
+                        node_data['received_topics'],
+                        node_data['received_messages']
+                    ))
+                ]
+            }
+
+        # Add metadata
+        metadata = {
+            'timestamp': datetime.now().isoformat(),
+            'node_names': self.node_names
+        }
+
+        # Write to file
+        json.dump({
+            'metadata': metadata,
+            'message_data': serializable_data
+        }, output_file, indent=2)
 
 
 def main():

@@ -80,11 +80,11 @@ publishers:
     message_size: 1024
     trigger:
       type: "timer"
-      frequency: 5.0
+      frequency: 20.0
       subscription_topics:
         - topic_name: "/camera_image_left_rectified"
           mode: "window"
-          window_time: 0.25
+          window_time: 0.1
 '''
         }]
     )
@@ -348,6 +348,26 @@ class TestEmitterNode(unittest.TestCase):
             self.node.destroy_client(client)
         self.message_clients.clear()
 
+    def print_parent_chain(self, msg_id, node_name, published_messages_by_node, receive_time_sec, indent=""):
+        # Search for the message in any node's published messages
+        msg = None
+        found_node = None
+        for candidate_node, node_data in published_messages_by_node.items():
+            candidate_msgs = node_data['published_messages']
+            msg = next((m for m in candidate_msgs if m.identifier == msg_id), None)
+            if msg:
+                found_node = candidate_node
+                break
+        if not msg:
+            print(f"{indent}{node_name}: {msg_id} (not found in any node)")
+            return
+        pub_time = msg.publish_timestamp.sec + msg.publish_timestamp.nanosec * 1e-9
+        latency = pub_time - receive_time_sec
+        print(f"{indent}{found_node}: {msg.identifier} | Publish: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec} | Latency from Actuator: {latency:.6f}s")
+        if msg.parent_messages:
+            for parent_id in msg.parent_messages:
+                self.print_parent_chain(parent_id, found_node, published_messages_by_node, receive_time_sec, indent + "    └── ")
+
     def test_get_published_messages_service(self):
         """Test the get_published_messages service."""
         # Wait for 2 seconds to let the nodes publish messages
@@ -430,74 +450,8 @@ class TestEmitterNode(unittest.TestCase):
                 receive_time_sec = receive_time.sec + receive_time.nanosec * 1e-9
                 print(f"\nMessage Tree for Actuator Message: {msg_id}")
                 print(f"  Receive Time: {receive_time.sec}.{receive_time.nanosec}")
-
-                # Find the root parent message by following the chain backwards
-                current_msg_id = msg_id
-                message_tree = []
-
-                # Start with tensor_decode_node
-                tensor_decode_msgs = published_messages_by_node['tensor_decode_node']['published_messages']
-                tensor_decode_msg = next((m for m in tensor_decode_msgs if m.identifier == current_msg_id), None)
-                if tensor_decode_msg:
-                    decode_time = tensor_decode_msg.publish_timestamp.sec + tensor_decode_msg.publish_timestamp.nanosec * 1e-9
-                    latency = receive_time_sec - decode_time
-                    print(f"└── tensor_decode_node: {tensor_decode_msg.identifier}")
-                    print(f"    Publish Time: {tensor_decode_msg.publish_timestamp.sec}.{tensor_decode_msg.publish_timestamp.nanosec}")
-                    print(f"    Latency from Actuator: {latency:.6f} seconds")
-                    if tensor_decode_msg.parent_messages:
-                        print("    └── tensor_inference_node: " + "\n        └── ".join(tensor_decode_msg.parent_messages))
-                        current_msg_id = tensor_decode_msg.parent_messages[0]
-
-                # Check tensor_inference_node
-                if current_msg_id:
-                    tensor_inference_msgs = published_messages_by_node['tensor_inference_node']['published_messages']
-                    tensor_inference_msg = next((m for m in tensor_inference_msgs if m.identifier == current_msg_id), None)
-                    if tensor_inference_msg and tensor_inference_msg.parent_messages:
-                        inference_time = tensor_inference_msg.publish_timestamp.sec + tensor_inference_msg.publish_timestamp.nanosec * 1e-9
-                        latency = receive_time_sec - inference_time
-                        print(f"        └── tensor_inference_node: {tensor_inference_msg.identifier}")
-                        print(f"            Publish Time: {tensor_inference_msg.publish_timestamp.sec}.{tensor_inference_msg.publish_timestamp.nanosec}")
-                        print(f"            Latency from Actuator: {latency:.6f} seconds")
-                        print("            └── tensor_encoder_node: " + "\n                └── ".join(tensor_inference_msg.parent_messages))
-                        current_msg_id = tensor_inference_msg.parent_messages[0]
-
-                # Check tensor_encoder_node
-                if current_msg_id:
-                    tensor_encoder_msgs = published_messages_by_node['tensor_encoder_node']['published_messages']
-                    tensor_encoder_msg = next((m for m in tensor_encoder_msgs if m.identifier == current_msg_id), None)
-                    if tensor_encoder_msg and tensor_encoder_msg.parent_messages:
-                        encoder_time = tensor_encoder_msg.publish_timestamp.sec + tensor_encoder_msg.publish_timestamp.nanosec * 1e-9
-                        latency = receive_time_sec - encoder_time
-                        print(f"                └── tensor_encoder_node: {tensor_encoder_msg.identifier}")
-                        print(f"                    Publish Time: {tensor_encoder_msg.publish_timestamp.sec}.{tensor_encoder_msg.publish_timestamp.nanosec}")
-                        print(f"                    Latency from Actuator: {latency:.6f} seconds")
-                        print("                    └── rectify_node: " + "\n                        └── ".join(tensor_encoder_msg.parent_messages))
-                        current_msg_id = tensor_encoder_msg.parent_messages[0]
-
-                # Check rectify_node
-                if current_msg_id:
-                    rectify_msgs = published_messages_by_node['rectify_node']['published_messages']
-                    rectify_msg = next((m for m in rectify_msgs if m.identifier == current_msg_id), None)
-                    if rectify_msg and rectify_msg.parent_messages:
-                        rectify_time = rectify_msg.publish_timestamp.sec + rectify_msg.publish_timestamp.nanosec * 1e-9
-                        latency = receive_time_sec - rectify_time
-                        print(f"                        └── rectify_node: {rectify_msg.identifier}")
-                        print(f"                            Publish Time: {rectify_msg.publish_timestamp.sec}.{rectify_msg.publish_timestamp.nanosec}")
-                        print(f"                            Latency from Actuator: {latency:.6f} seconds")
-                        print("                            └── camera_node: " + "\n                                └── ".join(rectify_msg.parent_messages))
-                        current_msg_id = rectify_msg.parent_messages[0]
-
-                # Check camera_node
-                if current_msg_id:
-                    camera_msgs = published_messages_by_node['camera_node']['published_messages']
-                    camera_msg = next((m for m in camera_msgs if m.identifier == current_msg_id), None)
-                    if camera_msg and camera_msg.parent_messages:
-                        camera_time = camera_msg.publish_timestamp.sec + camera_msg.publish_timestamp.nanosec * 1e-9
-                        latency = receive_time_sec - camera_time
-                        print(f"                                └── camera_node: {camera_msg.identifier}")
-                        print(f"                                    Publish Time: {camera_msg.publish_timestamp.sec}.{camera_msg.publish_timestamp.nanosec}")
-                        print(f"                                    Latency from Actuator: {latency:.6f} seconds")
-                        print("                                    └── camera_node parents: " + "\n                                        └── ".join(camera_msg.parent_messages))
+                # Start the chain from tensor_decode_node
+                self.print_parent_chain(msg_id, "actuator_node", published_messages_by_node, receive_time_sec, indent="└── ")
 
             if latencies:
                 latencies.sort()

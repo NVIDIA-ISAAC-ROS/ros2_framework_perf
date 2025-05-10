@@ -135,9 +135,6 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           timestamp.nanosec = now.nanoseconds();
           received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
           received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
-
-          // Then handle any triggers
-          this->handle_subscription_message(sub_config.topic, sub_config, msg);
         });
       RCLCPP_INFO(get_logger(), "Created standalone subscriber for topic %s", sub_config.topic.c_str());
     }
@@ -344,14 +341,6 @@ void EmitterNode::subscriber_callback(
         msgs.push_back(msg);
         handle_message_received_trigger(config.topic_name, msg_config, msgs);
       }
-    } else if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
-      const auto& timer_config = std::get<TimerTriggerConfig>(config.trigger);
-      // Check if this message's topic is in the subscription topics list
-      for (const auto& sub_config : timer_config.subscription_topics) {
-        if (sub_config.topic == topic_name) {
-          handle_subscription_message(config.topic_name, sub_config, msg);
-        }
-      }
     }
   }
 }
@@ -428,41 +417,6 @@ void EmitterNode::handle_timer_trigger(
   RCLCPP_DEBUG(get_logger(), "Publishing on timer at time %f:%ld on topic %s: %s", current_time.seconds(), current_time.nanoseconds(), topic_name.c_str(), message.info.identifier.c_str());
   publishers_[topic_name]->publish(message);
   published_messages_by_topic_[topic_name].push_back(message.info);
-}
-
-void EmitterNode::handle_subscription_message(
-  const std::string& topic_name,
-  const std::variant<SubscriptionConfig, PublisherSubscriptionConfig>& config,
-  const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg)
-{
-  rclcpp::Time current_time = this->now();
-  auto timestamp = builtin_interfaces::msg::Time();
-  timestamp.sec = current_time.seconds();
-  timestamp.nanosec = current_time.nanoseconds();
-
-  if (std::holds_alternative<PublisherSubscriptionConfig>(config)) {
-    const auto& pub_config = std::get<PublisherSubscriptionConfig>(config);
-    if (pub_config.mode == "window") {
-      // Store all messages in window mode
-      received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
-      received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
-    }
-    else if (pub_config.mode == "latest") {
-      // Only keep the latest message
-      if (received_messages_by_topic_[topic_name].timestamps.empty()) {
-        received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
-        received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
-      }
-      else {
-        received_messages_by_topic_[topic_name].timestamps.back() = timestamp;
-        received_messages_by_topic_[topic_name].message_identifiers.back() = msg->info.identifier;
-      }
-    }
-  } else {
-    // Simple subscription - just store the message
-    received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
-    received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
-  }
 }
 
 void EmitterNode::handle_message_received_trigger(
@@ -715,7 +669,7 @@ void EmitterNode::setup_synchronizer(
     return;
   }
 
-  // Register immediate storage callback for each subscriber
+  // Register callback for each subscriber to record messages
   for (const auto& sub : subs) {
     sub->registerCallback(
       [this](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {

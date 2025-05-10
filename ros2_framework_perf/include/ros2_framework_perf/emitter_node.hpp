@@ -125,10 +125,6 @@ private:
     const std::string& topic_name,
     const TimerTriggerConfig& config,
     const rclcpp::Time& current_time);
-  void handle_subscription_message(
-    const std::string& topic_name,
-    const std::variant<SubscriptionConfig, PublisherSubscriptionConfig>& config,
-    const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg);
   void handle_message_received_trigger(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& config,

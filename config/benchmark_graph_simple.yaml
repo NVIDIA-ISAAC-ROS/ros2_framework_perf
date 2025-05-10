@@ -1,0 +1,57 @@
+# Profiling configuration for the benchmark
+profiling_config:
+  data_collection_time: 5.0  # Time to let the graph run to collect data
+  setup_wait_time: 2.0  # Time to wait after setup before starting
+  service_wait_timeout: 10.0  # Maximum time to wait for services to be ready
+
+nodes:
+  tensor_encoder_node:
+    name: tensor_encoder_node
+    config:
+      node_name: tensor_encoder_node
+      yaml_config: |
+        publishers:
+          - topic_name: "/tensor_encoder_output"
+            message_size: 1024
+            message_type: "std_msgs/String"
+            trigger:
+              type: "timer"
+              frequency: 10.0
+
+  tensor_inference_node:
+    name: tensor_inference_node
+    config:
+      node_name: tensor_inference_node
+      yaml_config: |
+        publishers:
+          - topic_name: "/tensor_inference_output"
+            message_size: 2048
+            message_type: "std_msgs/String"
+            trigger:
+              type: "message_received"
+              mode: "exact_time"
+              topics:
+                - "/tensor_encoder_output"
+
+  tensor_decode_node:
+    name: tensor_decode_node
+    config:
+      node_name: tensor_decode_node
+      yaml_config: |
+        publishers:
+          - topic_name: "/robot_cmd"
+            message_size: 512
+            message_type: "std_msgs/String"
+            trigger:
+              type: "message_received"
+              mode: "exact_time"
+              topics:
+                - "/tensor_inference_output"
+
+  actuator_node:
+    name: actuator_node
+    config:
+      node_name: actuator_node
+      yaml_config: |
+        subscriptions:
+          - topic_name: "/robot_cmd"

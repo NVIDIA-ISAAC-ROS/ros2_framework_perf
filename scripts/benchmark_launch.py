@@ -34,11 +34,13 @@ timer_groups:
 publishers:
   - topic_name: "/camera_image_left"
     message_size: 1024
+    message_type: "sensor_msgs/Image"
     trigger:
       type: "timer"
       timer_group: "camera"
   - topic_name: "/camera_info_left"
     message_size: 1024
+    message_type: "sensor_msgs/CameraInfo"
     trigger:
       type: "timer"
       timer_group: "camera"
@@ -58,6 +60,7 @@ publishers:
 publishers:
   - topic_name: "/camera_image_left_rectified"
     message_size: 2048
+    message_type: "sensor_msgs/Image"
     trigger:
       type: "message_received"
       mode: "exact_time"
@@ -78,6 +81,7 @@ publishers:
 publishers:
   - topic_name: "/tensor_encoder_output"
     message_size: 1024
+    message_type: "std_msgs/String"
     trigger:
       type: "timer"
       frequency: 20.0
@@ -99,6 +103,7 @@ publishers:
 publishers:
   - topic_name: "/tensor_inference_output"
     message_size: 2048
+    message_type: "std_msgs/String"
     trigger:
       type: "message_received"
       mode: "exact_time"
@@ -118,6 +123,7 @@ publishers:
 publishers:
   - topic_name: "/robot_cmd"
     message_size: 512
+    message_type: "std_msgs/String"
     trigger:
       type: "message_received"
       mode: "exact_time"
@@ -362,7 +368,8 @@ class TestEmitterNode(unittest.TestCase):
             print(f"{indent}{node_name}: {msg_id} (not found in any node)")
             return
         pub_time = msg.publish_timestamp.sec + msg.publish_timestamp.nanosec * 1e-9
-        latency = pub_time - receive_time_sec
+        latency = receive_time_sec - pub_time
+
         print(f"{indent}{found_node}: {msg.identifier} | Publish: {msg.publish_timestamp.sec}.{msg.publish_timestamp.nanosec} | Latency from Actuator: {latency:.6f}s")
         if msg.parent_messages:
             for parent_id in msg.parent_messages:

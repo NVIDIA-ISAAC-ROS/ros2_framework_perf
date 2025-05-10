@@ -69,6 +69,7 @@ struct TimerGroupConfig {
 struct PublisherConfig {
   std::string topic_name;
   size_t message_size;
+  std::string message_type;  // Required message type for the publisher
   std::variant<TimerTriggerConfig, MessageReceivedTriggerConfig> trigger;
 };
 
@@ -139,7 +140,7 @@ private:
   // Member variables
   std::string node_name_;
   std::string yaml_config_;
-  uint64_t sequence_number_{0};
+  std::map<std::string, uint64_t> sequence_numbers_;  // Sequence number per topic
   size_t message_window_size_{10};  // Default window size for exact time matching
   std::map<std::string, rclcpp::Publisher<ros2_framework_perf_interfaces::msg::MessageWithPayload>::SharedPtr> publishers_;
   std::map<std::string, rclcpp::Subscription<ros2_framework_perf_interfaces::msg::MessageWithPayload>::SharedPtr> subscribers_;

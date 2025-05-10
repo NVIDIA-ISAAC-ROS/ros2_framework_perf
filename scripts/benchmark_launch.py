@@ -426,7 +426,10 @@ class TestEmitterNode(unittest.TestCase):
 
             print("\nActuator Node Message Trees:")
             for j, msg_id in enumerate(actuator_msgs.message_identifiers):
+                receive_time = actuator_msgs.timestamps[j]
+                receive_time_sec = receive_time.sec + receive_time.nanosec * 1e-9
                 print(f"\nMessage Tree for Actuator Message: {msg_id}")
+                print(f"  Receive Time: {receive_time.sec}.{receive_time.nanosec}")
 
                 # Find the root parent message by following the chain backwards
                 current_msg_id = msg_id
@@ -436,7 +439,11 @@ class TestEmitterNode(unittest.TestCase):
                 tensor_decode_msgs = published_messages_by_node['tensor_decode_node']['published_messages']
                 tensor_decode_msg = next((m for m in tensor_decode_msgs if m.identifier == current_msg_id), None)
                 if tensor_decode_msg:
+                    decode_time = tensor_decode_msg.publish_timestamp.sec + tensor_decode_msg.publish_timestamp.nanosec * 1e-9
+                    latency = receive_time_sec - decode_time
                     print(f"└── tensor_decode_node: {tensor_decode_msg.identifier}")
+                    print(f"    Publish Time: {tensor_decode_msg.publish_timestamp.sec}.{tensor_decode_msg.publish_timestamp.nanosec}")
+                    print(f"    Latency from Actuator: {latency:.6f} seconds")
                     if tensor_decode_msg.parent_messages:
                         print("    └── tensor_inference_node: " + "\n        └── ".join(tensor_decode_msg.parent_messages))
                         current_msg_id = tensor_decode_msg.parent_messages[0]
@@ -446,7 +453,12 @@ class TestEmitterNode(unittest.TestCase):
                     tensor_inference_msgs = published_messages_by_node['tensor_inference_node']['published_messages']
                     tensor_inference_msg = next((m for m in tensor_inference_msgs if m.identifier == current_msg_id), None)
                     if tensor_inference_msg and tensor_inference_msg.parent_messages:
-                        print("        └── tensor_encoder_node: " + "\n            └── ".join(tensor_inference_msg.parent_messages))
+                        inference_time = tensor_inference_msg.publish_timestamp.sec + tensor_inference_msg.publish_timestamp.nanosec * 1e-9
+                        latency = receive_time_sec - inference_time
+                        print(f"        └── tensor_inference_node: {tensor_inference_msg.identifier}")
+                        print(f"            Publish Time: {tensor_inference_msg.publish_timestamp.sec}.{tensor_inference_msg.publish_timestamp.nanosec}")
+                        print(f"            Latency from Actuator: {latency:.6f} seconds")
+                        print("            └── tensor_encoder_node: " + "\n                └── ".join(tensor_inference_msg.parent_messages))
                         current_msg_id = tensor_inference_msg.parent_messages[0]
 
                 # Check tensor_encoder_node
@@ -454,7 +466,12 @@ class TestEmitterNode(unittest.TestCase):
                     tensor_encoder_msgs = published_messages_by_node['tensor_encoder_node']['published_messages']
                     tensor_encoder_msg = next((m for m in tensor_encoder_msgs if m.identifier == current_msg_id), None)
                     if tensor_encoder_msg and tensor_encoder_msg.parent_messages:
-                        print("            └── rectify_node: " + "\n                └── ".join(tensor_encoder_msg.parent_messages))
+                        encoder_time = tensor_encoder_msg.publish_timestamp.sec + tensor_encoder_msg.publish_timestamp.nanosec * 1e-9
+                        latency = receive_time_sec - encoder_time
+                        print(f"                └── tensor_encoder_node: {tensor_encoder_msg.identifier}")
+                        print(f"                    Publish Time: {tensor_encoder_msg.publish_timestamp.sec}.{tensor_encoder_msg.publish_timestamp.nanosec}")
+                        print(f"                    Latency from Actuator: {latency:.6f} seconds")
+                        print("                    └── rectify_node: " + "\n                        └── ".join(tensor_encoder_msg.parent_messages))
                         current_msg_id = tensor_encoder_msg.parent_messages[0]
 
                 # Check rectify_node
@@ -462,7 +479,12 @@ class TestEmitterNode(unittest.TestCase):
                     rectify_msgs = published_messages_by_node['rectify_node']['published_messages']
                     rectify_msg = next((m for m in rectify_msgs if m.identifier == current_msg_id), None)
                     if rectify_msg and rectify_msg.parent_messages:
-                        print("                └── camera_node: " + "\n                    └── ".join(rectify_msg.parent_messages))
+                        rectify_time = rectify_msg.publish_timestamp.sec + rectify_msg.publish_timestamp.nanosec * 1e-9
+                        latency = receive_time_sec - rectify_time
+                        print(f"                        └── rectify_node: {rectify_msg.identifier}")
+                        print(f"                            Publish Time: {rectify_msg.publish_timestamp.sec}.{rectify_msg.publish_timestamp.nanosec}")
+                        print(f"                            Latency from Actuator: {latency:.6f} seconds")
+                        print("                            └── camera_node: " + "\n                                └── ".join(rectify_msg.parent_messages))
                         current_msg_id = rectify_msg.parent_messages[0]
 
                 # Check camera_node
@@ -470,7 +492,12 @@ class TestEmitterNode(unittest.TestCase):
                     camera_msgs = published_messages_by_node['camera_node']['published_messages']
                     camera_msg = next((m for m in camera_msgs if m.identifier == current_msg_id), None)
                     if camera_msg and camera_msg.parent_messages:
-                        print("                    └── camera_node parents: " + "\n                        └── ".join(camera_msg.parent_messages))
+                        camera_time = camera_msg.publish_timestamp.sec + camera_msg.publish_timestamp.nanosec * 1e-9
+                        latency = receive_time_sec - camera_time
+                        print(f"                                └── camera_node: {camera_msg.identifier}")
+                        print(f"                                    Publish Time: {camera_msg.publish_timestamp.sec}.{camera_msg.publish_timestamp.nanosec}")
+                        print(f"                                    Latency from Actuator: {latency:.6f} seconds")
+                        print("                                    └── camera_node parents: " + "\n                                        └── ".join(camera_msg.parent_messages))
 
             if latencies:
                 latencies.sort()

@@ -96,29 +96,39 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
 
     # Write statistics to file
     output.write(f"\nTimestamp Delta Statistics for {node_name} receiving {topic_name} messages:\n")
+    percentile_95 = sorted_deltas[int(len(sorted_deltas) * 0.95)] * 1000
+    percentile_99 = sorted_deltas[int(len(sorted_deltas) * 0.99)] * 1000
+    min_delta_ms = min_delta * 1000
+    max_delta_ms = max_delta * 1000
+    mean_delta_ms = mean_delta * 1000
+    median_delta_ms = median_delta * 1000
+    stddev_ms = stddev * 1000
     if expected_frequency is not None:
         expected_delta = 1.0 / expected_frequency
-        percentile_95 = sorted_deltas[int(len(sorted_deltas) * 0.95)]
-        percentile_99 = sorted_deltas[int(len(sorted_deltas) * 0.99)]
-        output.write(f"  Expected delta: {expected_delta:.6f} seconds (from {expected_frequency} Hz)\n")
-        output.write(f"  Minimum delta: {min_delta:.6f} seconds (delta: |{abs(min_delta - expected_delta):.6f}|s, {((min_index + 1) / total_deltas) * 100:.1f}% through data)\n")
-        output.write(f"  Maximum delta: {max_delta:.6f} seconds (delta: |{abs(max_delta - expected_delta):.6f}|s, {((max_index + 1) / total_deltas) * 100:.1f}% through data)\n")
-        output.write(f"  Mean delta: {mean_delta:.6f} seconds (delta: |{abs(mean_delta - expected_delta):.6f}|s)\n")
-        output.write(f"  Standard deviation: {stddev:.6f} seconds\n")
-        output.write(f"  Median delta: {median_delta:.6f} seconds (delta: |{abs(median_delta - expected_delta):.6f}|s)\n")
-        output.write(f"  95th percentile: {percentile_95:.6f} seconds (delta: |{abs(percentile_95 - expected_delta):.6f}|s)\n")
-        output.write(f"  99th percentile: {percentile_99:.6f} seconds (delta: |{abs(percentile_99 - expected_delta):.6f}|s)\n")
+        expected_delta_ms = expected_delta * 1000
+        min_diff_ms = abs(min_delta - expected_delta) * 1000
+        max_diff_ms = abs(max_delta - expected_delta) * 1000
+        mean_diff_ms = abs(mean_delta - expected_delta) * 1000
+        median_diff_ms = abs(median_delta - expected_delta) * 1000
+        percentile_95_diff_ms = abs(percentile_95/1000 - expected_delta) * 1000
+        percentile_99_diff_ms = abs(percentile_99/1000 - expected_delta) * 1000
+        output.write(f"  Expected delta: {expected_delta_ms:.3f} ms (from {expected_frequency} Hz)\n")
+        output.write(f"  Minimum delta: {min_delta_ms:.3f} ms (delta: |{min_diff_ms:.3f}|ms, {((min_index + 1) / total_deltas) * 100:.1f}% through data)\n")
+        output.write(f"  Maximum delta: {max_delta_ms:.3f} ms (delta: |{max_diff_ms:.3f}|ms, {((max_index + 1) / total_deltas) * 100:.1f}% through data)\n")
+        output.write(f"  Mean delta: {mean_delta_ms:.3f} ms (delta: |{mean_diff_ms:.3f}|ms)\n")
+        output.write(f"  Standard deviation: {stddev_ms:.3f} ms\n")
+        output.write(f"  Median delta: {median_delta_ms:.3f} ms (delta: |{median_diff_ms:.3f}|ms)\n")
+        output.write(f"  95th percentile: {percentile_95:.3f} ms (delta: |{percentile_95_diff_ms:.3f}|ms)\n")
+        output.write(f"  99th percentile: {percentile_99:.3f} ms (delta: |{percentile_99_diff_ms:.3f}|ms)\n")
 
     else:
-        percentile_95 = sorted_deltas[int(len(sorted_deltas) * 0.95)]
-        percentile_99 = sorted_deltas[int(len(sorted_deltas) * 0.99)]
-        output.write(f"  Minimum delta: {min_delta:.6f} seconds\n")
-        output.write(f"  Maximum delta: {max_delta:.6f} seconds\n")
-        output.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
-        output.write(f"  Standard deviation: {stddev:.6f} seconds\n")
-        output.write(f"  Median delta: {median_delta:.6f} seconds\n")
-        output.write(f"  95th percentile: {percentile_95:.6f} seconds\n")
-        output.write(f"  99th percentile: {percentile_99:.6f} seconds\n")
+        output.write(f"  Minimum delta: {min_delta_ms:.3f} ms\n")
+        output.write(f"  Maximum delta: {max_delta_ms:.3f} ms\n")
+        output.write(f"  Mean delta: {mean_delta_ms:.3f} ms\n")
+        output.write(f"  Standard deviation: {stddev_ms:.3f} ms\n")
+        output.write(f"  Median delta: {median_delta_ms:.3f} ms\n")
+        output.write(f"  95th percentile: {percentile_95:.3f} ms\n")
+        output.write(f"  99th percentile: {percentile_99:.3f} ms\n")
 
 
     # Create plot
@@ -345,12 +355,17 @@ def analyze_message_trees(node_data, target_node, target_topic, output, message_
             median_latency = latencies[len(latencies) // 2] if len(latencies) % 2 == 1 else \
                            (latencies[len(latencies) // 2 - 1] + latencies[len(latencies) // 2]) / 2
 
+            min_latency_ms = min_latency * 1000
+            max_latency_ms = max_latency * 1000
+            mean_latency_ms = mean_latency * 1000
+            median_latency_ms = median_latency * 1000
+
             output.write("\nLatency Statistics:\n")
             output.write(f"  Number of Messages: {len(latencies)}\n")
-            output.write(f"  Minimum Latency: {min_latency:.6f} seconds\n")
-            output.write(f"  Maximum Latency: {max_latency:.6f} seconds\n")
-            output.write(f"  Mean Latency: {mean_latency:.6f} seconds\n")
-            output.write(f"  Median Latency: {median_latency:.6f} seconds\n")
+            output.write(f"  Minimum Latency: {min_latency_ms:.3f} ms\n")
+            output.write(f"  Maximum Latency: {max_latency_ms:.3f} ms\n")
+            output.write(f"  Mean Latency: {mean_latency_ms:.3f} ms\n")
+            output.write(f"  Median Latency: {median_latency_ms:.3f} ms\n")
         else:
             output.write("\nNo complete message chains found\n")
     else:

@@ -31,7 +31,7 @@ class TeeOutput:
             self.buffer = []
 
 
-def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None):
+def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None, message_data=None):
     """Calculate and print statistics for timestamp deltas between received messages.
 
     Args:
@@ -40,6 +40,7 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         output: TeeOutput object to write to
         node_name: Name of the node being analyzed
         expected_frequency: Expected frequency in Hz from configuration
+        message_data: Dictionary containing all nodes' message data for finding publishers
     """
     topic_index = None
 
@@ -53,33 +54,30 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         output.write(f"\nNo {topic_name} messages found in node\n")
         return
 
-    # Get timestamps for messages
-    timestamps = node_data['received_messages'][topic_index]['messages']
+    # Get timestamps for received messages
+    received_timestamps = node_data['received_messages'][topic_index]['messages']
 
-    if len(timestamps) < 2:
+    if len(received_timestamps) < 2:
         output.write("\nNot enough messages to calculate timestamp deltas\n")
         return
 
-    # Calculate deltas between consecutive timestamps
-    deltas = []
-    timestamps_sec = []
-    for i in range(1, len(timestamps)):
-        prev_time = timestamps[i-1]['timestamp']['sec'] + timestamps[i-1]['timestamp']['nanosec'] * 1e-9
-        curr_time = timestamps[i]['timestamp']['sec'] + timestamps[i]['timestamp']['nanosec'] * 1e-9
+    # Calculate deltas between consecutive received timestamps
+    received_deltas = []
+    for i in range(1, len(received_timestamps)):
+        prev_time = received_timestamps[i-1]['timestamp']['sec'] + received_timestamps[i-1]['timestamp']['nanosec'] * 1e-9
+        curr_time = received_timestamps[i]['timestamp']['sec'] + received_timestamps[i]['timestamp']['nanosec'] * 1e-9
         delta = curr_time - prev_time
-        deltas.append(delta)
-        timestamps_sec.append(curr_time)  # Store the current timestamp
+        received_deltas.append(delta)
 
     # Find indices of min and max deltas
-    min_index = deltas.index(min(deltas))
-    max_index = deltas.index(max(deltas))
-    total_deltas = len(deltas)
+    min_index = received_deltas.index(min(received_deltas))
+    max_index = received_deltas.index(max(received_deltas))
+    total_deltas = len(received_deltas)
+    output.write(f"\nMin delta at index {min_index + 1} ({((min_index + 1) / total_deltas) * 100:.1f}% through data)\n")
+    output.write(f"Max delta at index {max_index + 1} ({((max_index + 1) / total_deltas) * 100:.1f}% through data)\n")
 
-    output.write(f"\nMin delta at index {min_index + 1} of {total_deltas}\n")
-    output.write(f"Max delta at index {max_index + 1} of {total_deltas}\n")
-
-    # Calculate statistics
-    sorted_deltas = sorted(deltas)
+    # Calculate statistics for received messages
+    sorted_deltas = sorted(received_deltas)
     min_delta = sorted_deltas[0]
     max_delta = sorted_deltas[-1]
     mean_delta = sum(sorted_deltas) / len(sorted_deltas)
@@ -109,20 +107,44 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
 
     # Create plot
     plt.figure(figsize=(12, 6))
-    # Convert deltas to milliseconds
-    deltas_ms = [delta * 1000 for delta in deltas]
-    # Use message indices as x-axis
-    message_indices = range(1, len(deltas) + 1)
-    plt.plot(message_indices, deltas_ms, 'b-', label='Timestamp Delta')
+
+    # Plot received message deltas
+    received_deltas_ms = [delta * 1000 for delta in received_deltas]
+    message_indices = range(1, len(received_deltas) + 1)
+    plt.scatter(message_indices, received_deltas_ms, c='blue', s=20, alpha=1.0, label=f'Received Deltas ({node_name})')
+
+    # Find and plot published message deltas if message_data is provided
+    if message_data is not None:
+        # Find the publisher node for this topic
+        for publisher_node, publisher_data in message_data.items():
+            if publisher_node == node_name:
+                continue  # Skip the receiving node
+            if topic_name in publisher_data['published_topics']:
+                # Found a publisher, calculate its deltas
+                published_timestamps = []
+                for pub_msg in publisher_data['published_messages']:
+                    timestamp = pub_msg['publish_timestamp']['sec'] + pub_msg['publish_timestamp']['nanosec'] * 1e-9
+                    published_timestamps.append(timestamp)
+
+                if len(published_timestamps) >= 2:
+                    published_deltas = []
+                    for i in range(1, len(published_timestamps)):
+                        delta = published_timestamps[i] - published_timestamps[i-1]
+                        published_deltas.append(delta)
+
+                    published_deltas_ms = [delta * 1000 for delta in published_deltas]
+                    pub_indices = range(1, len(published_deltas) + 1)
+                    plt.scatter(pub_indices, published_deltas_ms, c='red', s=20, alpha=0.5, label=f'Published Deltas ({publisher_node})')
+                break  # Found the publisher, no need to check other nodes
 
     if expected_frequency is not None:
         expected_delta = 1.0 / expected_frequency
         expected_delta_ms = expected_delta * 1000
-        plt.axhline(y=expected_delta_ms, color='r', linestyle='--', label=f'Expected Delta ({expected_frequency} Hz)')
+        plt.axhline(y=expected_delta_ms, color='g', linestyle='--', alpha=0.8, label=f'Expected Delta ({expected_frequency} Hz)')
 
     plt.xlabel('Message Index')
     plt.ylabel('Timestamp Delta (milliseconds)')
-    plt.title(f'Timestamp Deltas for {node_name} receiving {topic_name}')
+    plt.title(f'Timestamp Deltas for {topic_name}')
     plt.grid(True)
     plt.legend()
 
@@ -402,7 +424,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
 
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
-    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency)
+    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data)
 
     # Analyze message flow if requested
     if include_message_flow:

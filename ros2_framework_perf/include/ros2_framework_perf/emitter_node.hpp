@@ -117,10 +117,6 @@ private:
     const std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>>& subs);
 
   // Callback functions
-  void subscriber_callback(
-    const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg,
-    const std::string& topic_name);
-  void timer_callback();
   void handle_timer_trigger(
     const std::string& topic_name,
     const TimerTriggerConfig& config,
@@ -159,6 +155,7 @@ private:
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_2_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_3_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_4_;
+  std::shared_ptr<rclcpp::Clock> steady_clock_;
 };
 
 }  // namespace ros2_framework_perf

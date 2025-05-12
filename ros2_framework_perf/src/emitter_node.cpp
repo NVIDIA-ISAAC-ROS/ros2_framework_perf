@@ -35,6 +35,7 @@ namespace ros2_framework_perf
 EmitterNode::EmitterNode(const rclcpp::NodeOptions & options)
 : LifecycleNode("EmitterNode", options)
 {
+  steady_clock_ = std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME);
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
@@ -125,7 +126,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         sub_config.topic,
         rclcpp::QoS(10).reliable().durability_volatile(),
         [this, sub_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg) {
-          auto now = this->now();
+          auto now = steady_clock_->now();
           RCLCPP_DEBUG(this->get_logger(), "Received message on topic %s: %s with timestamp %f.%ld",
             sub_config.topic.c_str(), msg->info.identifier.c_str(), now.seconds(), now.nanoseconds());
 
@@ -164,7 +165,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           rclcpp::QoS(10).reliable().durability_volatile(),
           [this, sub_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg) {
             // Store received message
-            auto now = this->now();
+            auto now = steady_clock_->now();
             auto timestamp = builtin_interfaces::msg::Time();
             timestamp.sec = now.seconds();
             timestamp.nanosec = now.nanoseconds();
@@ -195,6 +196,8 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       timers_[config.topic_name] = create_wall_timer(
         std::chrono::milliseconds(period_ms),
         [this, topic = config.topic_name]() {
+          rclcpp::Time current_time = steady_clock_->now();
+
           // For timer groups, publish all messages in the group with the same timestamp
           auto it = std::find_if(this->publisher_configs_.begin(), this->publisher_configs_.end(),
             [&topic](const PublisherConfig& config) { return config.topic_name == topic; });
@@ -203,7 +206,6 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
             if (timer_config.timer_group_name) {
               // Only trigger the first publisher in the group, it will handle all publishers in the group
               if (this->timer_group_publishers_[*timer_config.timer_group_name][0] == topic) {
-                rclcpp::Time current_time = this->now();
                 for (const auto& group_topic : this->timer_group_publishers_[*timer_config.timer_group_name]) {
                   auto group_it = std::find_if(this->publisher_configs_.begin(), this->publisher_configs_.end(),
                     [&group_topic](const PublisherConfig& config) { return config.topic_name == group_topic; });
@@ -213,7 +215,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
                 }
               }
             } else {
-              this->handle_timer_trigger(topic, timer_config, this->now());
+              this->handle_timer_trigger(topic, timer_config, current_time);
             }
           }
         });
@@ -314,50 +316,6 @@ EmitterNode::on_shutdown([[maybe_unused]] const rclcpp_lifecycle::State & state)
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
-void EmitterNode::subscriber_callback(
-  const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg,
-  const std::string& topic_name)
-{
-  rclcpp::Time current_time = this->now();
-  auto timestamp = builtin_interfaces::msg::Time();
-  timestamp.sec = current_time.seconds();
-  timestamp.nanosec = current_time.nanoseconds();
-
-  RCLCPP_DEBUG(get_logger(), "Received message on topic %s: %s with timestamp %d.%d",
-    topic_name.c_str(), msg->info.identifier.c_str(), timestamp.sec, timestamp.nanosec);
-
-  // Store the received message
-  received_messages_by_topic_[topic_name].timestamps.push_back(timestamp);
-  received_messages_by_topic_[topic_name].message_identifiers.push_back(msg->info.identifier);
-
-  // Check for publishers with message received triggers
-  for (const auto& config : publisher_configs_) {
-    if (std::holds_alternative<MessageReceivedTriggerConfig>(config.trigger)) {
-      const auto& msg_config = std::get<MessageReceivedTriggerConfig>(config.trigger);
-      // Check if this message's topic is in the trigger's topics list
-      if (std::find(msg_config.topics.begin(), msg_config.topics.end(), topic_name) != msg_config.topics.end()) {
-        // Create a vector with the single message
-        std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr> msgs;
-        msgs.push_back(msg);
-        handle_message_received_trigger(config.topic_name, msg_config, msgs);
-      }
-    }
-  }
-}
-
-void EmitterNode::timer_callback()
-{
-  rclcpp::Time current_time = this->now();
-
-  // Call handle_timer_trigger for each publisher with a timer trigger
-  for (const auto& config : publisher_configs_) {
-    if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
-      const auto& timer_config = std::get<TimerTriggerConfig>(config.trigger);
-      handle_timer_trigger(config.topic_name, timer_config, current_time);
-    }
-  }
-}
-
 void EmitterNode::handle_timer_trigger(
   const std::string& topic_name,
   const TimerTriggerConfig& config,
@@ -424,7 +382,7 @@ void EmitterNode::handle_message_received_trigger(
   [[maybe_unused]] const MessageReceivedTriggerConfig& config,
   const std::vector<ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr>& msgs)
 {
-  rclcpp::Time current_time = this->now();
+  rclcpp::Time current_time = steady_clock_->now();
   auto timestamp = builtin_interfaces::msg::Time();
   timestamp.sec = current_time.seconds();
   timestamp.nanosec = current_time.nanoseconds();
@@ -647,7 +605,7 @@ void EmitterNode::setup_synchronizer(
     subs[0]->registerCallback(
       [this, topic_name, msg_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {
         // Store received message immediately
-        auto now = this->now();
+        auto now = steady_clock_->now();
         auto timestamp = builtin_interfaces::msg::Time();
         timestamp.sec = now.seconds();
         timestamp.nanosec = now.nanoseconds();
@@ -674,7 +632,7 @@ void EmitterNode::setup_synchronizer(
     sub->registerCallback(
       [this](const ros2_framework_perf_interfaces::msg::MessageWithPayload::ConstSharedPtr& msg) {
         // Store received message immediately
-        auto now = this->now();
+        auto now = steady_clock_->now();
         auto timestamp = builtin_interfaces::msg::Time();
         timestamp.sec = now.seconds();
         timestamp.nanosec = now.nanoseconds();

@@ -1,48 +1,10 @@
 # Profiling configuration for the benchmark
 profiling_config:
-  data_collection_time: 5.0  # Time to let the graph run to collect data
+  data_collection_time: 10.0  # Time to let the graph run to collect data
   setup_wait_time: 2.0  # Time to wait after setup before starting
   service_wait_timeout: 10.0  # Maximum time to wait for services to be ready
 
 nodes:
-  camera_node:
-    name: camera_node
-    config:
-      node_name: camera_node
-      yaml_config: |
-        timer_groups:
-          - name: "camera"
-            frequency: 30.0
-        publishers:
-          - topic_name: "/camera_image_left"
-            message_size: 1024
-            message_type: "sensor_msgs/Image"
-            trigger:
-              type: "timer"
-              timer_group: "camera"
-          - topic_name: "/camera_info_left"
-            message_size: 1024
-            message_type: "sensor_msgs/CameraInfo"
-            trigger:
-              type: "timer"
-              timer_group: "camera"
-
-  rectify_node:
-    name: rectify_node
-    config:
-      node_name: rectify_node
-      yaml_config: |
-        publishers:
-          - topic_name: "/camera_image_left_rectified"
-            message_size: 2048
-            message_type: "sensor_msgs/Image"
-            trigger:
-              type: "message_received"
-              mode: "exact_time"
-              topics:
-                - "/camera_image_left"
-                - "/camera_info_left"
-
   tensor_encoder_node:
     name: tensor_encoder_node
     config:
@@ -54,14 +16,7 @@ nodes:
             message_type: "std_msgs/String"
             trigger:
               type: "timer"
-              frequency: 500.0
-              subscription_topics:
-                - topic_name: "/camera_image_left_rectified"
-                  mode: "window"
-                  window_time: 0.1
-                - topic_name: "/joint_states"
-                  mode: "window"
-                  window_time: 0.1
+              frequency: 10.0
 
   tensor_inference_node:
     name: tensor_inference_node
@@ -100,16 +55,3 @@ nodes:
       yaml_config: |
         subscriptions:
           - topic_name: "/robot_cmd"
-
-  joint_state_node:
-    name: joint_state_node
-    config:
-      node_name: joint_state_node
-      yaml_config: |
-        publishers:
-          - topic_name: "/joint_states"
-            message_size: 512
-            message_type: "sensor_msgs/JointState"
-            trigger:
-              type: "timer"
-              frequency: 500.0

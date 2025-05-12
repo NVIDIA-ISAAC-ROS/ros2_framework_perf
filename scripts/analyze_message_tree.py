@@ -10,6 +10,8 @@ import yaml
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
+import rclpy
+from rclpy.time import Time
 
 
 class TeeOutput:
@@ -64,17 +66,21 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
     # Calculate deltas between consecutive received timestamps
     received_deltas = []
     for i in range(1, len(received_timestamps)):
-        prev_time = received_timestamps[i-1]['timestamp']['sec'] + received_timestamps[i-1]['timestamp']['nanosec'] * 1e-9
-        curr_time = received_timestamps[i]['timestamp']['sec'] + received_timestamps[i]['timestamp']['nanosec'] * 1e-9
-        delta = curr_time - prev_time
+        prev_sec = received_timestamps[i-1]['timestamp']['sec']
+        prev_nsec = received_timestamps[i-1]['timestamp']['nanosec']
+        curr_sec = received_timestamps[i]['timestamp']['sec']
+        curr_nsec = received_timestamps[i]['timestamp']['nanosec']
+
+        prev_time = Time(seconds=prev_sec, nanoseconds=prev_nsec)
+        curr_time = Time(seconds=curr_sec, nanoseconds=curr_nsec)
+        duration = curr_time - prev_time
+        delta = duration.nanoseconds * 1e-9
         received_deltas.append(delta)
 
     # Find indices of min and max deltas
     min_index = received_deltas.index(min(received_deltas))
     max_index = received_deltas.index(max(received_deltas))
     total_deltas = len(received_deltas)
-    output.write(f"\nMin delta at index {min_index + 1} ({((min_index + 1) / total_deltas) * 100:.1f}% through data)\n")
-    output.write(f"Max delta at index {max_index + 1} ({((max_index + 1) / total_deltas) * 100:.1f}% through data)\n")
 
     # Calculate statistics for received messages
     sorted_deltas = sorted(received_deltas)
@@ -92,18 +98,28 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
     output.write(f"\nTimestamp Delta Statistics for {node_name} receiving {topic_name} messages:\n")
     if expected_frequency is not None:
         expected_delta = 1.0 / expected_frequency
+        percentile_95 = sorted_deltas[int(len(sorted_deltas) * 0.95)]
+        percentile_99 = sorted_deltas[int(len(sorted_deltas) * 0.99)]
         output.write(f"  Expected delta: {expected_delta:.6f} seconds (from {expected_frequency} Hz)\n")
-        output.write(f"  Minimum delta: {min_delta:.6f} seconds (delta: |{abs(min_delta - expected_delta):.6f}|s)\n")
-        output.write(f"  Maximum delta: {max_delta:.6f} seconds (delta: |{abs(max_delta - expected_delta):.6f}|s)\n")
+        output.write(f"  Minimum delta: {min_delta:.6f} seconds (delta: |{abs(min_delta - expected_delta):.6f}|s, {((min_index + 1) / total_deltas) * 100:.1f}% through data)\n")
+        output.write(f"  Maximum delta: {max_delta:.6f} seconds (delta: |{abs(max_delta - expected_delta):.6f}|s, {((max_index + 1) / total_deltas) * 100:.1f}% through data)\n")
         output.write(f"  Mean delta: {mean_delta:.6f} seconds (delta: |{abs(mean_delta - expected_delta):.6f}|s)\n")
-        output.write(f"  Median delta: {median_delta:.6f} seconds (delta: |{abs(median_delta - expected_delta):.6f}|s)\n")
         output.write(f"  Standard deviation: {stddev:.6f} seconds\n")
+        output.write(f"  Median delta: {median_delta:.6f} seconds (delta: |{abs(median_delta - expected_delta):.6f}|s)\n")
+        output.write(f"  95th percentile: {percentile_95:.6f} seconds (delta: |{abs(percentile_95 - expected_delta):.6f}|s)\n")
+        output.write(f"  99th percentile: {percentile_99:.6f} seconds (delta: |{abs(percentile_99 - expected_delta):.6f}|s)\n")
+
     else:
+        percentile_95 = sorted_deltas[int(len(sorted_deltas) * 0.95)]
+        percentile_99 = sorted_deltas[int(len(sorted_deltas) * 0.99)]
         output.write(f"  Minimum delta: {min_delta:.6f} seconds\n")
         output.write(f"  Maximum delta: {max_delta:.6f} seconds\n")
         output.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
-        output.write(f"  Median delta: {median_delta:.6f} seconds\n")
         output.write(f"  Standard deviation: {stddev:.6f} seconds\n")
+        output.write(f"  Median delta: {median_delta:.6f} seconds\n")
+        output.write(f"  95th percentile: {percentile_95:.6f} seconds\n")
+        output.write(f"  99th percentile: {percentile_99:.6f} seconds\n")
+
 
     # Create plot
     plt.figure(figsize=(12, 6))
@@ -154,7 +170,6 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
     plt.close()
 
     output.write(f"\nPlot saved as: {plot_filename}\n")
-
 
 def print_parent_chain(msg_id, node_name, message_data, receive_time_sec, indent="", output=None):
     # Search for the message in any node's published messages
@@ -401,7 +416,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     if publishers:
         output.write("\nExpected Publisher Frequencies:\n")
         for node_name, frequency in publishers.items():
-            output.write(f"  {node_name}: {frequency} Hz\n")
+            output.write(f"  {node_name} @ {frequency} Hz\n")
     else:
         output.write("\nNo direct publishers found for this topic in configuration\n")
 

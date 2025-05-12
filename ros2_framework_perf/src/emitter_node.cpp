@@ -126,14 +126,15 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         sub_config.topic,
         rclcpp::QoS(10).reliable().durability_volatile(),
         [this, sub_config](const ros2_framework_perf_interfaces::msg::MessageWithPayload::SharedPtr msg) {
-          auto now = steady_clock_->now();
-          RCLCPP_DEBUG(this->get_logger(), "Received message on topic %s: %s with timestamp %f.%ld",
-            sub_config.topic.c_str(), msg->info.identifier.c_str(), now.seconds(), now.nanoseconds());
-
-          // Store the received message directly
+          auto now = steady_clock_->now();// Store the received message directly
           auto timestamp = builtin_interfaces::msg::Time();
-          timestamp.sec = now.seconds();
-          timestamp.nanosec = now.nanoseconds();
+          timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000);
+          timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000);
+
+          RCLCPP_DEBUG(this->get_logger(), "Received message on topic %s: %s with timestamp %ld",
+            sub_config.topic.c_str(), msg->info.identifier.c_str(), now.nanoseconds());
+
+
           received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
           received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
         });
@@ -167,8 +168,8 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
             // Store received message
             auto now = steady_clock_->now();
             auto timestamp = builtin_interfaces::msg::Time();
-            timestamp.sec = now.seconds();
-            timestamp.nanosec = now.nanoseconds();
+            timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000);
+            timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000);
 
             received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
             received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
@@ -323,12 +324,14 @@ void EmitterNode::handle_timer_trigger(
 {
   auto message = ros2_framework_perf_interfaces::msg::MessageWithPayload();
 
-  // Set timestamp in both header and info
-  message.header.stamp.sec = current_time.seconds();
-  message.header.stamp.nanosec = current_time.nanoseconds();
+  // Set timestamp in both header and info using correct sec/nanosec split
+  auto timestamp = builtin_interfaces::msg::Time();
+  timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
+  timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
 
-  message.info.publish_timestamp.sec = current_time.seconds();
-  message.info.publish_timestamp.nanosec = current_time.nanoseconds();
+  message.header.stamp = timestamp;
+  message.info.publish_timestamp = timestamp;
+
   message.info.topic_name = topic_name;
 
   // Get the publisher config to access message_type and message_size
@@ -372,7 +375,8 @@ void EmitterNode::handle_timer_trigger(
     }
   }
 
-  RCLCPP_DEBUG(get_logger(), "Publishing on timer at time %f:%ld on topic %s: %s", current_time.seconds(), current_time.nanoseconds(), topic_name.c_str(), message.info.identifier.c_str());
+  RCLCPP_DEBUG(get_logger(), "Publishing %s on timer at time %ld on topic %s: %s", message.info.identifier.c_str(), current_time.nanoseconds(), topic_name.c_str(), message.info.identifier.c_str());
+
   publishers_[topic_name]->publish(message);
   published_messages_by_topic_[topic_name].push_back(message.info);
 }
@@ -384,8 +388,8 @@ void EmitterNode::handle_message_received_trigger(
 {
   rclcpp::Time current_time = steady_clock_->now();
   auto timestamp = builtin_interfaces::msg::Time();
-  timestamp.sec = current_time.seconds();
-  timestamp.nanosec = current_time.nanoseconds();
+  timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
+  timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
 
   // Create and publish the message
   auto message = ros2_framework_perf_interfaces::msg::MessageWithPayload();
@@ -607,8 +611,8 @@ void EmitterNode::setup_synchronizer(
         // Store received message immediately
         auto now = steady_clock_->now();
         auto timestamp = builtin_interfaces::msg::Time();
-        timestamp.sec = now.seconds();
-        timestamp.nanosec = now.nanoseconds();
+        timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000);
+        timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000);
 
         received_messages_by_topic_[msg->info.topic_name].timestamps.push_back(timestamp);
         received_messages_by_topic_[msg->info.topic_name].message_identifiers.push_back(msg->info.identifier);
@@ -634,8 +638,8 @@ void EmitterNode::setup_synchronizer(
         // Store received message immediately
         auto now = steady_clock_->now();
         auto timestamp = builtin_interfaces::msg::Time();
-        timestamp.sec = now.seconds();
-        timestamp.nanosec = now.nanoseconds();
+        timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000);
+        timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000);
 
         received_messages_by_topic_[msg->info.topic_name].timestamps.push_back(timestamp);
         received_messages_by_topic_[msg->info.topic_name].message_identifiers.push_back(msg->info.identifier);

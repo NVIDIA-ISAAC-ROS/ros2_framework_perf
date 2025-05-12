@@ -8,6 +8,8 @@ from tqdm import tqdm
 import sys
 import yaml
 from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class TeeOutput:
@@ -60,22 +62,32 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
 
     # Calculate deltas between consecutive timestamps
     deltas = []
+    timestamps_sec = []
     for i in range(1, len(timestamps)):
         prev_time = timestamps[i-1]['timestamp']['sec'] + timestamps[i-1]['timestamp']['nanosec'] * 1e-9
         curr_time = timestamps[i]['timestamp']['sec'] + timestamps[i]['timestamp']['nanosec'] * 1e-9
         delta = curr_time - prev_time
         deltas.append(delta)
+        timestamps_sec.append(curr_time)  # Store the current timestamp
+
+    # Find indices of min and max deltas
+    min_index = deltas.index(min(deltas))
+    max_index = deltas.index(max(deltas))
+    total_deltas = len(deltas)
+
+    output.write(f"\nMin delta at index {min_index + 1} of {total_deltas}\n")
+    output.write(f"Max delta at index {max_index + 1} of {total_deltas}\n")
 
     # Calculate statistics
-    deltas.sort()
-    min_delta = deltas[0]
-    max_delta = deltas[-1]
-    mean_delta = sum(deltas) / len(deltas)
-    median_delta = deltas[len(deltas) // 2] if len(deltas) % 2 == 1 else \
-                  (deltas[len(deltas) // 2 - 1] + deltas[len(deltas) // 2]) / 2
+    sorted_deltas = sorted(deltas)
+    min_delta = sorted_deltas[0]
+    max_delta = sorted_deltas[-1]
+    mean_delta = sum(sorted_deltas) / len(sorted_deltas)
+    median_delta = sorted_deltas[len(sorted_deltas) // 2] if len(sorted_deltas) % 2 == 1 else \
+                  (sorted_deltas[len(sorted_deltas) // 2 - 1] + sorted_deltas[len(sorted_deltas) // 2]) / 2
 
     # Calculate standard deviation
-    variance = sum((x - mean_delta) ** 2 for x in deltas) / len(deltas)
+    variance = sum((x - mean_delta) ** 2 for x in sorted_deltas) / len(sorted_deltas)
     stddev = variance ** 0.5
 
     # Write statistics to file
@@ -94,6 +106,32 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         output.write(f"  Mean delta: {mean_delta:.6f} seconds\n")
         output.write(f"  Median delta: {median_delta:.6f} seconds\n")
         output.write(f"  Standard deviation: {stddev:.6f} seconds\n")
+
+    # Create plot
+    plt.figure(figsize=(12, 6))
+    # Convert deltas to milliseconds
+    deltas_ms = [delta * 1000 for delta in deltas]
+    # Use message indices as x-axis
+    message_indices = range(1, len(deltas) + 1)
+    plt.plot(message_indices, deltas_ms, 'b-', label='Timestamp Delta')
+
+    if expected_frequency is not None:
+        expected_delta = 1.0 / expected_frequency
+        expected_delta_ms = expected_delta * 1000
+        plt.axhline(y=expected_delta_ms, color='r', linestyle='--', label=f'Expected Delta ({expected_frequency} Hz)')
+
+    plt.xlabel('Message Index')
+    plt.ylabel('Timestamp Delta (milliseconds)')
+    plt.title(f'Timestamp Deltas for {node_name} receiving {topic_name}')
+    plt.grid(True)
+    plt.legend()
+
+    # Save plot
+    plot_filename = f"timestamp_deltas_{node_name}_{topic_name.replace('/', '_')}.png"
+    plt.savefig(plot_filename)
+    plt.close()
+
+    output.write(f"\nPlot saved as: {plot_filename}\n")
 
 
 def print_parent_chain(msg_id, node_name, message_data, receive_time_sec, indent="", output=None):

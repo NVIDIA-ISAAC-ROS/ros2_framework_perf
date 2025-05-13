@@ -487,13 +487,15 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     # Plot
     if matched_times:
         plt.figure(figsize=(12, 6))
+        # X-axis: receive time relative to first receive (in seconds)
+        t0 = matched_times[0][1].seconds_nanoseconds()[0] + matched_times[0][1].seconds_nanoseconds()[1] * 1e-9
+        x_times = [recv_t.seconds_nanoseconds()[0] + recv_t.seconds_nanoseconds()[1] * 1e-9 - t0 for _, recv_t, _ in matched_times]
         # Y-axis: time relative to publish (0 = publish, (receive-publish) = latency)
-        indices = list(range(len(matched_times)))
         rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-6 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
-        plt.errorbar(indices, [0]*len(indices), yerr=rel_latency_ms, fmt='o', color='purple', ecolor='gray', elinewidth=2, capsize=4, label='Latency (Receive - Publish)')
-        plt.scatter(indices, [0]*len(indices), color='green', marker='o', label='Publish (0)')
-        plt.scatter(indices, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
-        plt.xlabel('Message Index')
+        plt.errorbar(x_times, [0]*len(x_times), yerr=rel_latency_ms, fmt='o', color='purple', ecolor='gray', elinewidth=2, capsize=4, label='Latency (Receive - Publish)')
+        plt.scatter(x_times, [0]*len(x_times), color='green', marker='o', label='Publish (0)')
+        plt.scatter(x_times, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
+        plt.xlabel('Receive Time (seconds, relative to first)')
         plt.ylabel('Time since publish (milliseconds)')
         plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}')
         plt.legend()

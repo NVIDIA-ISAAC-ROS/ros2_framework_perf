@@ -464,6 +464,48 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
         # Use the minimum frequency since the node can't receive faster than the slowest publisher
         expected_frequency = min(publishers.values())
 
+    # After writing summary and before calculating timestamp deltas
+    # --- PUBLISH/RECEIVE TIME PLOT ---
+    # Build a mapping from identifier to publish time for this topic, searching all nodes
+    publish_times = {}
+    for node, node_info in message_data.items():
+        for msg in node_info['published_messages']:
+            if msg['topic_name'] == target_topic:
+                t = Time(seconds=msg['publish_timestamp']['sec'], nanoseconds=msg['publish_timestamp']['nanosec'])
+                publish_times[msg['identifier']] = t
+    # Get receive times for this topic
+    receive_times = []
+    receive_ids = []
+    for topic_data in node_data['received_messages']:
+        if topic_data['topic'] == target_topic:
+            for msg in topic_data['messages']:
+                t = Time(seconds=msg['timestamp']['sec'], nanoseconds=msg['timestamp']['nanosec'])
+                receive_times.append(t)
+                receive_ids.append(msg['identifier'])
+    # Match publish and receive times by identifier
+    matched_times = [(publish_times.get(msg_id, None), recv_t, msg_id) for msg_id, recv_t in zip(receive_ids, receive_times) if msg_id in publish_times]
+    # Plot
+    if matched_times:
+        plt.figure(figsize=(12, 6))
+        # Y-axis: time relative to publish (0 = publish, (receive-publish) = latency)
+        indices = list(range(len(matched_times)))
+        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-6 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
+        plt.errorbar(indices, [0]*len(indices), yerr=rel_latency_ms, fmt='o', color='purple', ecolor='gray', elinewidth=2, capsize=4, label='Latency (Receive - Publish)')
+        plt.scatter(indices, [0]*len(indices), color='green', marker='o', label='Publish (0)')
+        plt.scatter(indices, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
+        plt.xlabel('Message Index')
+        plt.ylabel('Time since publish (milliseconds)')
+        plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}')
+        plt.legend()
+        plt.grid(True)
+        plt.ylim(bottom=0)
+        plot_filename = f"publish_receive_times_{target_node}_{target_topic.replace('/', '_')}.png"
+        plt.savefig(plot_filename)
+        plt.close()
+        output.write(f"\nPublish/Receive time plot saved as: {plot_filename}\n")
+    else:
+        output.write("\nNo matching publish/receive times found for plotting.\n")
+
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
     calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions)

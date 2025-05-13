@@ -18,6 +18,7 @@ from lifecycle_msgs.msg import Transition
 from launch_testing.actions import ReadyToTest
 from ros2_framework_perf_interfaces.msg import MessageWithPayload
 from ros2_framework_perf_interfaces.srv import GetPublishedMessages
+from tqdm import tqdm
 
 
 def load_node_configs():
@@ -296,7 +297,8 @@ class TestEmitterNode(unittest.TestCase):
                             'sec': msg.publish_timestamp.sec,
                             'nanosec': msg.publish_timestamp.nanosec
                         },
-                        'parent_messages': list(msg.parent_messages)
+                        'parent_messages': list(msg.parent_messages),
+                        'topic_name': msg.topic_name
                     }
                     for msg in node_data['published_messages']
                 ],
@@ -353,7 +355,14 @@ class TestEmitterNode(unittest.TestCase):
     def test_get_published_messages_service(self):
         """Test the get_published_messages service and write raw data to file."""
         # Wait for configured time to let the nodes publish messages
-        time.sleep(self.profiling_config['data_collection_time'])
+        wait_time = self.profiling_config['data_collection_time']
+        step = 0.1
+        steps = int(wait_time / step)
+        for _ in tqdm(range(steps), desc='Data collection wait', unit='0.1s'):
+            time.sleep(step)
+        remainder = wait_time - steps * step
+        if remainder > 0:
+            time.sleep(remainder)
 
         self.lifecycle_node.deactivate_nodes()
         print("Deactivated nodes")

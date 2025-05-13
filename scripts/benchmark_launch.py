@@ -185,11 +185,6 @@ class TestEmitterNode(unittest.TestCase):
         self.message_clients = {}
         service_name_by_node_name = {}
 
-        # Print all available services first
-        print("\nAvailable services in system:")
-        for service, types in self.node.get_service_names_and_types():
-            print(f"  {service}: {types}")
-
         for node_name in self.node_names:
             # Match exactly how the C++ code constructs the service name: "/" + get_name() + "/get_published_messages"
             service_name = f"/{node_name}/get_published_messages"  # No extra spaces, exact string construction
@@ -245,9 +240,6 @@ class TestEmitterNode(unittest.TestCase):
                             print(f"    Type: {types}")
 
     def tearDown(self):
-        self.lifecycle_node.deactivate_nodes()
-        print("Deactivated nodes")
-
         # Destroy all message clients
         for client in self.message_clients.values():
             self.node.destroy_client(client)
@@ -281,7 +273,8 @@ class TestEmitterNode(unittest.TestCase):
                 'published_messages': response.published_messages,
                 'published_topics': response.published_topic_names,
                 'received_messages': response.received_message_timestamps,
-                'received_topics': response.received_topic_names
+                'received_topics': response.received_topic_names,
+                'lifecycle_transitions': response.lifecycle_transitions
             }
 
     def write_raw_message_data(self, published_messages_by_node, output_file):
@@ -326,6 +319,17 @@ class TestEmitterNode(unittest.TestCase):
                         node_data['received_topics'],
                         node_data['received_messages']
                     ))
+                ],
+                'lifecycle_transitions': [
+                    {
+                        'state_id': t.state_id,
+                        'state_label': t.state_label,
+                        'transition_time': {
+                            'sec': t.transition_time.sec,
+                            'nanosec': t.transition_time.nanosec
+                        }
+                    }
+                    for t in node_data['lifecycle_transitions']
                 ]
             }
 
@@ -350,6 +354,9 @@ class TestEmitterNode(unittest.TestCase):
         """Test the get_published_messages service and write raw data to file."""
         # Wait for configured time to let the nodes publish messages
         time.sleep(self.profiling_config['data_collection_time'])
+
+        self.lifecycle_node.deactivate_nodes()
+        print("Deactivated nodes")
 
         # Dictionary to store published messages by node
         published_messages_by_node = {}

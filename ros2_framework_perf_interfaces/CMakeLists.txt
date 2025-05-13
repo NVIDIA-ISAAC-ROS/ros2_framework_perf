@@ -39,6 +39,7 @@ ament_auto_find_build_dependencies()
 # Custom interfaces
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
+  msg/LifecycleTransition.msg
   msg/MessageInfo.msg
   msg/MessageIdWithTimestamps.msg
   msg/MessageWithPayload.msg

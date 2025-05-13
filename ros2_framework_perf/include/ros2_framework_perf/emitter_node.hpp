@@ -34,6 +34,7 @@
 #include "ros2_framework_perf_interfaces/msg/message_with_payload.hpp"
 #include "ros2_framework_perf_interfaces/msg/message_id_with_timestamps.hpp"
 #include "ros2_framework_perf_interfaces/srv/get_published_messages.hpp"
+#include "ros2_framework_perf_interfaces/msg/lifecycle_transition.hpp"
 #include <yaml-cpp/yaml.h>
 
 namespace ros2_framework_perf
@@ -156,6 +157,8 @@ private:
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_3_;
   std::map<std::string, std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload, ros2_framework_perf_interfaces::msg::MessageWithPayload>>>> approx_syncs_4_;
   std::shared_ptr<rclcpp::Clock> steady_clock_;
+  std::vector<ros2_framework_perf_interfaces::msg::LifecycleTransition> lifecycle_transitions_;
+  void record_lifecycle_transition(uint8_t state_id, const std::string& state_label);
 };
 
 }  // namespace ros2_framework_perf

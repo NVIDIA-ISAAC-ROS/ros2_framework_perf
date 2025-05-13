@@ -19,6 +19,7 @@
 #include "ros2_framework_perf_interfaces/msg/message_with_payload.hpp"
 #include "ros2_framework_perf_interfaces/srv/get_published_messages.hpp"
 #include "ros2_framework_perf_interfaces/msg/message_id_with_timestamps.hpp"
+#include "ros2_framework_perf_interfaces/msg/lifecycle_transition.hpp"
 #include <yaml-cpp/yaml.h>
 #include <memory>
 #include <string>
@@ -28,6 +29,7 @@
 #include "message_filters/synchronizer.hpp"
 #include "message_filters/sync_policies/exact_time.hpp"
 #include "message_filters/sync_policies/approximate_time.hpp"
+#include "lifecycle_msgs/msg/state.hpp"
 
 namespace ros2_framework_perf
 {
@@ -36,6 +38,16 @@ EmitterNode::EmitterNode(const rclcpp::NodeOptions & options)
 : LifecycleNode("EmitterNode", options)
 {
   steady_clock_ = std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME);
+}
+
+void EmitterNode::record_lifecycle_transition(uint8_t state_id, const std::string& state_label) {
+  ros2_framework_perf_interfaces::msg::LifecycleTransition transition;
+  transition.state_id = state_id;
+  transition.state_label = state_label;
+  auto now = steady_clock_->now();
+  transition.transition_time.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000);
+  transition.transition_time.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000);
+  lifecycle_transitions_.push_back(transition);
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
@@ -229,6 +241,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
     "/" + std::string(get_name()) + "/get_published_messages",
     std::bind(&EmitterNode::handle_get_published_messages, this, std::placeholders::_1, std::placeholders::_2));
 
+  record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE, "inactive");
   RCLCPP_INFO(get_logger(), "EmitterNode configured successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
@@ -243,6 +256,7 @@ EmitterNode::on_activate([[maybe_unused]] const rclcpp_lifecycle::State & state)
     timer->reset();
   }
 
+  record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "active");
   RCLCPP_INFO(get_logger(), "EmitterNode activated successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
@@ -257,6 +271,7 @@ EmitterNode::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::State & stat
     timer->cancel();
   }
 
+  record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE, "inactive");
   RCLCPP_INFO(get_logger(), "EmitterNode deactivated successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
@@ -285,6 +300,7 @@ EmitterNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::State & state)
   received_messages_by_topic_.clear();
   published_messages_by_topic_.clear();
 
+  record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED, "unconfigured");
   RCLCPP_INFO(get_logger(), "EmitterNode cleaned up successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
@@ -313,6 +329,7 @@ EmitterNode::on_shutdown([[maybe_unused]] const rclcpp_lifecycle::State & state)
   received_messages_by_topic_.clear();
   published_messages_by_topic_.clear();
 
+  record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_FINALIZED, "finalized");
   RCLCPP_INFO(get_logger(), "EmitterNode shut down successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
@@ -463,6 +480,8 @@ void EmitterNode::handle_get_published_messages(
     RCLCPP_DEBUG(get_logger(), "Added received messages for topic: %s, count: %zu",
       topic.c_str(), data.message_identifiers.size());
   }
+
+  response->lifecycle_transitions = lifecycle_transitions_;
 
   RCLCPP_INFO(get_logger(), "GetPublishedMessages service request handled. Found %zu published topics and %zu received topics",
     response->published_topic_names.size(),

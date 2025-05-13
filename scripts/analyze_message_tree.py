@@ -33,7 +33,7 @@ class TeeOutput:
             self.buffer = []
 
 
-def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None, message_data=None):
+def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None, message_data=None, lifecycle_transitions=None):
     """Calculate and print statistics for timestamp deltas between received messages.
 
     Args:
@@ -43,6 +43,7 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         node_name: Name of the node being analyzed
         expected_frequency: Expected frequency in Hz from configuration
         message_data: Dictionary containing all nodes' message data for finding publishers
+        lifecycle_transitions: List of lifecycle transitions for the node
     """
     topic_index = None
 
@@ -134,19 +135,30 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
     # Create plot
     plt.figure(figsize=(12, 6))
 
-    # Plot received message deltas
+    # Use time as X-axis (relative to first message)
+    receive_times = [msg['timestamp']['sec'] + msg['timestamp']['nanosec'] * 1e-9 for msg in node_data['received_messages'][topic_index]['messages']]
+    if not receive_times:
+        output.write("\nNo receive times found for plotting.\n")
+        return
+    t0 = receive_times[0]
+    x_times = [t - t0 for t in receive_times[1:]]  # X for deltas: time of message 2, 3, ...
     received_deltas_ms = [delta * 1000 for delta in received_deltas]
-    message_indices = range(1, len(received_deltas) + 1)
-    plt.scatter(message_indices, received_deltas_ms, c='blue', s=20, alpha=1.0, label=f'Received Deltas ({node_name})')
+    plt.scatter(x_times, received_deltas_ms, c='blue', s=20, alpha=1.0, label=f'Received Deltas ({node_name})')
+
+    # Draw vertical lines for lifecycle transitions if provided, skip first state of inactive
+    if lifecycle_transitions is not None:
+        for transition in lifecycle_transitions[1:]:
+            t_sec = transition['transition_time']['sec'] + transition['transition_time']['nanosec'] * 1e-9
+            x = t_sec - t0
+            plt.axvline(x=x, color='purple', linestyle='--', alpha=0.7)
+            plt.text(x, plt.ylim()[1]*0.95, transition['state_label'], rotation=90, color='purple', va='top', ha='right', fontsize=8, backgroundcolor='white')
 
     # Find and plot published message deltas if message_data is provided
     if message_data is not None:
-        # Find the publisher node for this topic
         for publisher_node, publisher_data in message_data.items():
             if publisher_node == node_name:
                 continue  # Skip the receiving node
             if topic_name in publisher_data['published_topics']:
-                # Found a publisher, calculate its deltas
                 published_timestamps = []
                 for pub_msg in publisher_data['published_messages']:
                     timestamp = pub_msg['publish_timestamp']['sec'] + pub_msg['publish_timestamp']['nanosec'] * 1e-9
@@ -157,10 +169,9 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
                     for i in range(1, len(published_timestamps)):
                         delta = published_timestamps[i] - published_timestamps[i-1]
                         published_deltas.append(delta)
-
+                    published_x_times = [published_timestamps[i] - t0 for i in range(1, len(published_timestamps))]
                     published_deltas_ms = [delta * 1000 for delta in published_deltas]
-                    pub_indices = range(1, len(published_deltas) + 1)
-                    plt.scatter(pub_indices, published_deltas_ms, c='red', s=20, alpha=0.5, label=f'Published Deltas ({publisher_node})')
+                    plt.scatter(published_x_times, published_deltas_ms, c='red', s=20, alpha=0.5, label=f'Published Deltas ({publisher_node})')
                 break  # Found the publisher, no need to check other nodes
 
     if expected_frequency is not None:
@@ -168,7 +179,7 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         expected_delta_ms = expected_delta * 1000
         plt.axhline(y=expected_delta_ms, color='g', linestyle='--', alpha=0.8, label=f'Expected Delta ({expected_frequency} Hz)')
 
-    plt.xlabel('Message Index')
+    plt.xlabel('Time (seconds)')
     plt.ylabel('Timestamp Delta (milliseconds)')
     plt.title(f'Timestamp Deltas for {topic_name}')
     plt.grid(True)
@@ -419,6 +430,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
 
     # Filter to just the target node
     node_data = message_data[target_node]
+    lifecycle_transitions = node_data.get('lifecycle_transitions', None)
 
     print("\nWriting analysis to file...")
     output.write("Message Tree Analysis\n")
@@ -454,7 +466,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
 
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
-    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data)
+    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions)
 
     # Analyze message flow if requested
     if include_message_flow:

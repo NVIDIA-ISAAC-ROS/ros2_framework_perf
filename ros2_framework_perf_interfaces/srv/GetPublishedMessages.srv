@@ -33,3 +33,6 @@ string[] published_topic_names
 
 # True if no error occurred
 bool success false
+
+# Lifecycle state transitions (state name and timestamp)
+LifecycleTransition[] lifecycle_transitions

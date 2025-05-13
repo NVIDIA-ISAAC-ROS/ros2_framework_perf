@@ -53,7 +53,7 @@ void EmitterNode::record_lifecycle_transition(uint8_t state_id, const std::strin
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Configuring EmitterNode...");
+  RCLCPP_DEBUG(get_logger(), "Configuring EmitterNode...");
 
   // Get node name and YAML config
   node_name_ = declare_parameter("node_name", "EmitterNode");;
@@ -150,7 +150,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
           received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
         });
-      RCLCPP_INFO(get_logger(), "Created standalone subscriber for topic %s", sub_config.topic.c_str());
+      RCLCPP_DEBUG(get_logger(), "Created standalone subscriber for topic %s", sub_config.topic.c_str());
     }
   }
 
@@ -165,7 +165,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           this, topic, rclcpp::QoS(10).reliable().durability_volatile());
         subs.push_back(sub);
         message_filters_subscribers_by_topic_[config.topic_name].push_back(sub);
-        RCLCPP_INFO(get_logger(), "Created message filter subscriber for topic %s", topic.c_str());
+        RCLCPP_DEBUG(get_logger(), "Created message filter subscriber for topic %s", topic.c_str());
       }
       setup_synchronizer(config.topic_name, msg_config, subs);
     } else if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
@@ -189,7 +189,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
             RCLCPP_DEBUG(get_logger(), "Received message on topic %s: %s",
               sub_config.topic.c_str(), msg->info.identifier.c_str());
           });
-        RCLCPP_INFO(get_logger(), "Created subscriber for topic %s", sub_config.topic.c_str());
+        RCLCPP_DEBUG(get_logger(), "Created subscriber for topic %s", sub_config.topic.c_str());
       }
     }
   }
@@ -242,14 +242,14 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
     std::bind(&EmitterNode::handle_get_published_messages, this, std::placeholders::_1, std::placeholders::_2));
 
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE, "inactive");
-  RCLCPP_INFO(get_logger(), "EmitterNode configured successfully");
+  RCLCPP_DEBUG(get_logger(), "EmitterNode configured successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 EmitterNode::on_activate([[maybe_unused]] const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Activating EmitterNode...");
+  RCLCPP_DEBUG(get_logger(), "Activating EmitterNode...");
 
   // Start timers
   for (auto& [topic, timer] : timers_) {
@@ -257,14 +257,14 @@ EmitterNode::on_activate([[maybe_unused]] const rclcpp_lifecycle::State & state)
   }
 
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE, "active");
-  RCLCPP_INFO(get_logger(), "EmitterNode activated successfully");
+  RCLCPP_DEBUG(get_logger(), "EmitterNode activated successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 EmitterNode::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Deactivating EmitterNode...");
+  RCLCPP_DEBUG(get_logger(), "Deactivating EmitterNode...");
 
   // Stop timers
   for (auto& [topic, timer] : timers_) {
@@ -272,14 +272,14 @@ EmitterNode::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::State & stat
   }
 
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE, "inactive");
-  RCLCPP_INFO(get_logger(), "EmitterNode deactivated successfully");
+  RCLCPP_DEBUG(get_logger(), "EmitterNode deactivated successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 EmitterNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Cleaning up EmitterNode...");
+  RCLCPP_DEBUG(get_logger(), "Cleaning up EmitterNode...");
 
   // Clean up publishers
   for (auto& [topic, publisher] : publishers_) {
@@ -301,14 +301,14 @@ EmitterNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::State & state)
   published_messages_by_topic_.clear();
 
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED, "unconfigured");
-  RCLCPP_INFO(get_logger(), "EmitterNode cleaned up successfully");
+  RCLCPP_DEBUG(get_logger(), "EmitterNode cleaned up successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 EmitterNode::on_shutdown([[maybe_unused]] const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Shutting down EmitterNode...");
+  RCLCPP_DEBUG(get_logger(), "Shutting down EmitterNode...");
 
   // Clean up publishers
   for (auto& [topic, publisher] : publishers_) {
@@ -330,7 +330,7 @@ EmitterNode::on_shutdown([[maybe_unused]] const rclcpp_lifecycle::State & state)
   published_messages_by_topic_.clear();
 
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_FINALIZED, "finalized");
-  RCLCPP_INFO(get_logger(), "EmitterNode shut down successfully");
+  RCLCPP_DEBUG(get_logger(), "EmitterNode shut down successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
@@ -447,7 +447,7 @@ void EmitterNode::handle_get_published_messages(
   [[maybe_unused]] const std::shared_ptr<ros2_framework_perf_interfaces::srv::GetPublishedMessages::Request> request,
   std::shared_ptr<ros2_framework_perf_interfaces::srv::GetPublishedMessages::Response> response)
 {
-  RCLCPP_INFO(get_logger(), "Handling GetPublishedMessages service request");
+  RCLCPP_DEBUG(get_logger(), "Handling GetPublishedMessages service request");
   response->success = true;
 
   // Handle published messages
@@ -483,7 +483,7 @@ void EmitterNode::handle_get_published_messages(
 
   response->lifecycle_transitions = lifecycle_transitions_;
 
-  RCLCPP_INFO(get_logger(), "GetPublishedMessages service request handled. Found %zu published topics and %zu received topics",
+  RCLCPP_DEBUG(get_logger(), "GetPublishedMessages service request handled. Found %zu published topics and %zu received topics",
     response->published_topic_names.size(),
     response->received_topic_names.size());
 }

@@ -380,6 +380,19 @@ class TestEmitterNode(unittest.TestCase):
             self.write_raw_message_data(published_messages_by_node, raw_data_file)
         print(f"Raw message data has been written to {raw_data_filename}")
 
+        # Update symlink to latest
+        symlink_name = "raw_message_data_latest.json"
+        try:
+            if os.path.islink(symlink_name) or os.path.exists(symlink_name):
+                os.remove(symlink_name)
+        except Exception as e:
+            print(f"Warning: Could not remove old symlink {symlink_name}: {e}")
+        try:
+            os.symlink(raw_data_filename, symlink_name)
+            print(f"Symlink {symlink_name} -> {raw_data_filename} created.")
+        except Exception as e:
+            print(f"Warning: Could not create symlink {symlink_name}: {e}")
+
 def main():
     unittest.main()
 

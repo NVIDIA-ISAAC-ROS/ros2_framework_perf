@@ -55,3 +55,5 @@ nodes:
       yaml_config: |
         subscriptions:
           - topic_name: "/robot_cmd"
+
+container_executable: component_container

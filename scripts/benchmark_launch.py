@@ -58,11 +58,12 @@ def generate_test_description():
         print(node_config['config']['yaml_config'])
 
     # Create container with all nodes
+    container_executable = config.get('container_executable', 'component_container')
     container = ComposableNodeContainer(
         name='emitter_container',
         namespace='',
         package='rclcpp_components',
-        executable='component_container',
+        executable=container_executable,
         composable_node_descriptions=composable_nodes,
         output='screen'
     )

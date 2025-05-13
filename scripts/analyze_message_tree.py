@@ -508,6 +508,84 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     else:
         output.write("\nNo matching publish/receive times found for plotting.\n")
 
+    # Calculate timestamp deltas for received messages
+    received_deltas = []
+    for i in range(1, len(receive_times)):
+        delta = (receive_times[i] - receive_times[i-1]).nanoseconds * 1e-9
+        received_deltas.append(delta)
+    received_deltas_ms = [delta * 1000 for delta in received_deltas]
+    # X-axis: receive time relative to first receive (in seconds)
+    if receive_times:
+        t0 = receive_times[0].seconds_nanoseconds()[0] + receive_times[0].seconds_nanoseconds()[1] * 1e-9
+        x_times = [t.seconds_nanoseconds()[0] + t.seconds_nanoseconds()[1] * 1e-9 - t0 for t in receive_times]
+        x_times_deltas = x_times[1:]  # For deltas, skip first
+    else:
+        t0 = 0
+        x_times = []
+        x_times_deltas = []
+
+    # Latency values for matched publish/receive
+    if matched_times:
+        x_times_latency = [recv_t.seconds_nanoseconds()[0] + recv_t.seconds_nanoseconds()[1] * 1e-9 - t0 for _, recv_t, _ in matched_times]
+        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-6 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
+    else:
+        x_times_latency = []
+        rel_latency_ms = []
+
+    # Create combined plot
+    if x_times_deltas and x_times_latency:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+        # --- Timestamp Deltas ---
+        ax1.scatter(x_times_deltas, received_deltas_ms, c='blue', s=20, alpha=1.0, label=f'Received Deltas ({target_node})')
+        # Draw vertical lines for lifecycle transitions if provided, skip first state of inactive
+        if lifecycle_transitions is not None:
+            for transition in lifecycle_transitions[1:]:
+                t_sec = transition['transition_time']['sec'] + transition['transition_time']['nanosec'] * 1e-9
+                x = t_sec - t0
+                ax1.axvline(x=x, color='purple', linestyle='--', alpha=0.7)
+                ax1.text(x, ax1.get_ylim()[1]*0.95, transition['state_label'], rotation=90, color='purple', va='top', ha='right', fontsize=8, backgroundcolor='white')
+        # Published deltas if available
+        for publisher_node, publisher_data in message_data.items():
+            if publisher_node == target_node:
+                continue
+            if target_topic in publisher_data['published_topics']:
+                published_timestamps = []
+                for pub_msg in publisher_data['published_messages']:
+                    if pub_msg['topic_name'] == target_topic:
+                        timestamp = pub_msg['publish_timestamp']['sec'] + pub_msg['publish_timestamp']['nanosec'] * 1e-9
+                        published_timestamps.append(timestamp)
+                if len(published_timestamps) >= 2:
+                    published_deltas = [published_timestamps[i] - published_timestamps[i-1] for i in range(1, len(published_timestamps))]
+                    published_x_times = [published_timestamps[i] - t0 for i in range(1, len(published_timestamps))]
+                    published_deltas_ms = [delta * 1000 for delta in published_deltas]
+                    ax1.scatter(published_x_times, published_deltas_ms, c='red', s=20, alpha=0.5, label=f'Published Deltas ({publisher_node})')
+                break
+        if expected_frequency is not None:
+            expected_delta = 1.0 / expected_frequency
+            expected_delta_ms = expected_delta * 1000
+            ax1.axhline(y=expected_delta_ms, color='g', linestyle='--', alpha=0.8, label=f'Expected Delta ({expected_frequency} Hz)')
+        ax1.set_ylabel('Timestamp Delta (milliseconds)')
+        ax1.set_title(f'Timestamp Deltas for {target_topic}')
+        ax1.grid(True)
+        ax1.legend()
+        # --- Latency ---
+        ax2.errorbar(x_times_latency, [0]*len(x_times_latency), yerr=rel_latency_ms, fmt='o', color='purple', ecolor='gray', elinewidth=2, capsize=4, label='Latency (Receive - Publish)')
+        ax2.scatter(x_times_latency, [0]*len(x_times_latency), color='green', marker='o', label='Publish (0)')
+        ax2.scatter(x_times_latency, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
+        ax2.set_xlabel('Receive Time (seconds, relative to first)')
+        ax2.set_ylabel('Time since publish (milliseconds)')
+        ax2.set_title(f'Latency (Receive - Publish) for {target_node} {target_topic}')
+        ax2.legend()
+        ax2.grid(True)
+        ax2.set_ylim(bottom=0)
+        plt.tight_layout()
+        plot_filename = f"combined_deltas_latency_{target_node}_{target_topic.replace('/', '_')}.png"
+        plt.savefig(plot_filename)
+        plt.close()
+        output.write(f"\nCombined Timestamp Deltas and Latency plot saved as: {plot_filename}\n")
+    else:
+        output.write("\nNot enough data for combined Timestamp Deltas and Latency plot.\n")
+
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
     calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions)

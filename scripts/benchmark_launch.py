@@ -8,6 +8,8 @@ from pathlib import Path
 
 import launch
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 import pytest
@@ -32,13 +34,19 @@ def load_node_configs():
     return config
 
 
-def create_composable_node(node_config):
+def create_composable_node(node_config, global_settings):
     """Create a ComposableNode from node configuration."""
+    # Use node-specific setting if available, otherwise use global setting
+    use_intra_process = node_config.get('use_intra_process', global_settings.get('use_intra_process', True))
+
     return ComposableNode(
         package="ros2_framework_perf",
         plugin="ros2_framework_perf::EmitterNode",
         name=node_config['name'],
-        parameters=[node_config['config']]
+        parameters=[node_config['config']],
+        extra_arguments=[{
+            'use_intra_process_comms': use_intra_process
+        }]
     )
 
 
@@ -48,11 +56,12 @@ def generate_test_description():
     # Load node configurations
     config = load_node_configs()
     node_configs = config['nodes']
+    global_settings = config.get('node_settings', {})
 
     # Create composable nodes from configurations
     composable_nodes = []
     for node_name, node_config in node_configs.items():
-        composable_node = create_composable_node(node_config)
+        composable_node = create_composable_node(node_config, global_settings)
         composable_nodes.append(composable_node)
         print(f"{node_name} configuration:")
         print(node_config['config']['yaml_config'])

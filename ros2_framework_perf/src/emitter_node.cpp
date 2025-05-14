@@ -30,6 +30,8 @@
 #include "message_filters/sync_policies/exact_time.hpp"
 #include "message_filters/sync_policies/approximate_time.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
+#include "rclcpp/executor_options.hpp"
+#include "rclcpp/context.hpp"
 
 namespace ros2_framework_perf
 {
@@ -37,6 +39,11 @@ namespace ros2_framework_perf
 EmitterNode::EmitterNode(const rclcpp::NodeOptions & options)
 : LifecycleNode("EmitterNode", options)
 {
+  // Log the intraprocess setting from NodeOptions
+  bool intra_process_enabled = (options.use_intra_process_comms());
+  RCLCPP_INFO(get_logger(), "EmitterNode created with use_intra_process_comms: %s",
+    intra_process_enabled ? "enabled" : "disabled");
+
   steady_clock_ = std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME);
 }
 
@@ -56,7 +63,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
   RCLCPP_DEBUG(get_logger(), "Configuring EmitterNode...");
 
   // Get node name and YAML config
-  node_name_ = declare_parameter("node_name", "EmitterNode");;
+  node_name_ = declare_parameter("node_name", "EmitterNode");
   yaml_config_ = declare_parameter<std::string>("yaml_config", "");
 
   // Parse YAML config

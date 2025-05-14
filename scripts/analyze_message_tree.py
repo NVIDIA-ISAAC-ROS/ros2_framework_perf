@@ -33,7 +33,7 @@ class TeeOutput:
             self.buffer = []
 
 
-def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None, message_data=None, lifecycle_transitions=None):
+def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expected_frequency=None, message_data=None, lifecycle_transitions=None, input_filename=None):
     """Calculate and print statistics for timestamp deltas between received messages.
 
     Args:
@@ -44,6 +44,7 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
         expected_frequency: Expected frequency in Hz from configuration
         message_data: Dictionary containing all nodes' message data for finding publishers
         lifecycle_transitions: List of lifecycle transitions for the node
+        input_filename: Name of the input data file
     """
     topic_index = None
 
@@ -181,7 +182,10 @@ def calculate_timestamp_deltas(node_data, topic_name, output, node_name, expecte
 
     plt.xlabel('Time (seconds)')
     plt.ylabel('Timestamp Delta (milliseconds)')
-    plt.title(f'Timestamp Deltas for {topic_name}')
+    title = f'Timestamp Deltas for {topic_name}'
+    if input_filename:
+        title += f'\nSource: {input_filename}'
+    plt.title(title)
     plt.grid(True)
     plt.legend()
 
@@ -407,6 +411,14 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     # Create output object
     output = TeeOutput(output_file, screen_output)
 
+    # Get the input filename for plot captions, resolving symlinks
+    input_path = Path(raw_data_file)
+    if input_path.is_symlink():
+        real_path = input_path.resolve()
+        input_filename = f"{input_path.name} -> {real_path.name}"
+    else:
+        input_filename = input_path.name
+
     # Validate target node
     if not target_node:
         print("Error: Target node must be specified")
@@ -497,7 +509,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
         plt.scatter(x_times, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
         plt.xlabel('Receive Time (seconds, relative to first)')
         plt.ylabel('Time since publish (milliseconds)')
-        plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}')
+        plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_filename}')
         plt.legend()
         plt.grid(True)
         plt.ylim(bottom=0)
@@ -565,7 +577,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
             expected_delta_ms = expected_delta * 1000
             ax1.axhline(y=expected_delta_ms, color='g', linestyle='--', alpha=0.8, label=f'Expected Delta ({expected_frequency} Hz)')
         ax1.set_ylabel('Timestamp Delta (milliseconds)')
-        ax1.set_title(f'Timestamp Deltas for {target_topic}')
+        ax1.set_title(f'Timestamp Deltas for {target_topic}\nSource: {input_filename}')
         ax1.grid(True)
         ax1.legend()
         # --- Latency ---
@@ -574,7 +586,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
         ax2.scatter(x_times_latency, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
         ax2.set_xlabel('Receive Time (seconds, relative to first)')
         ax2.set_ylabel('Time since publish (milliseconds)')
-        ax2.set_title(f'Latency (Receive - Publish) for {target_node} {target_topic}')
+        ax2.set_title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_filename}')
         ax2.legend()
         ax2.grid(True)
         ax2.set_ylim(bottom=0)
@@ -588,7 +600,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
 
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
-    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions)
+    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions, input_filename)
 
     # Analyze message flow if requested
     if include_message_flow:

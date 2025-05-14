@@ -5,6 +5,10 @@ import json
 import yaml
 from datetime import datetime
 from pathlib import Path
+import resource
+import psutil
+import signal
+import subprocess
 
 import launch
 from launch import LaunchDescription
@@ -74,7 +78,8 @@ def generate_test_description():
         package='rclcpp_components',
         executable=container_executable,
         composable_node_descriptions=composable_nodes,
-        output='screen'
+        output='screen',
+        prefix='chrt -r 99'
     )
 
     return LaunchDescription([
@@ -159,6 +164,10 @@ class TestEmitterNode(unittest.TestCase):
         cls.lifecycle_node = LifecycleTestNode(cls.node_names)
         cls.received_messages = []
 
+        # Initialize container process tracking
+        cls.container_pid = None
+        cls.initial_rusage = None
+
         # Wait for the nodes to be ready
         time.sleep(cls.profiling_config['setup_wait_time'])
 
@@ -183,8 +192,39 @@ class TestEmitterNode(unittest.TestCase):
         # Clear received messages
         self.received_messages = []
 
+        # Load configuration
+        config = load_node_configs()
+        self.container_executable = config.get('container_executable', 'component_container')
+        print(f"\nLooking for container process with executable: {self.container_executable}")
+
         # Wait for the nodes to be ready
         time.sleep(self.profiling_config['setup_wait_time'])
+
+        # Find and verify container process before activation
+        print("\nWaiting for container process to start...")
+        max_wait_time = 10  # Maximum time to wait for container in seconds
+        start_time = time.time()
+        container_proc = None
+
+        while time.time() - start_time < max_wait_time:
+            container_proc = self.find_container_process()
+            if container_proc:
+                print(f"Found container process (PID: {container_proc.pid})")
+                break
+            time.sleep(0.5)
+
+        if not container_proc:
+            print(f"Warning: Could not find container process with executable: {self.container_executable}")
+            return
+
+        # Get initial stats before activation
+        self.initial_usage = self.get_container_resource_usage()
+        if self.initial_usage:
+            print("\nInitial container resource usage (before activation):")
+            print(f"PID: {self.initial_usage['pid']}")
+            print(f"Page faults (major/minor): {self.initial_usage['page_faults']['major']}/{self.initial_usage['page_faults']['minor']}")
+            print(f"Memory RSS: {self.initial_usage['memory']['rss'] / 1024 / 1024:.2f} MB")
+            print(f"Threads: {self.initial_usage['threads']}")
 
         # Activate the nodes
         print("Activating nodes...")
@@ -362,6 +402,58 @@ class TestEmitterNode(unittest.TestCase):
             'message_data': serializable_data
         }, output_file, indent=2)
 
+    def find_container_process(self):
+        """Find the container process by looking for the configured executable name."""
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if self.container_executable in ' '.join(proc.info['cmdline'] or []):
+                    return proc
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return None
+
+    def get_container_resource_usage(self):
+        """Get resource usage statistics for the container process."""
+        container_proc = self.find_container_process()
+        if not container_proc:
+            print("Warning: Container process not found")
+            return None
+
+        try:
+            # Get process stats
+            with open(f"/proc/{container_proc.pid}/stat", 'r') as f:
+                stat = f.read().split()
+
+            # Get process status
+            with open(f"/proc/{container_proc.pid}/status", 'r') as f:
+                status = dict(line.split(':', 1) for line in f if ':' in line)
+
+            # Get memory info
+            mem_info = container_proc.memory_info()
+
+            return {
+                'pid': container_proc.pid,
+                'page_faults': {
+                    'major': int(stat[11]),  # majflt
+                    'minor': int(stat[9]),   # minflt
+                },
+                'memory': {
+                    'rss': mem_info.rss,
+                    'vms': mem_info.vms,
+                },
+                'cpu': {
+                    'user_time': float(stat[13]) / os.sysconf('SC_CLK_TCK'),
+                    'system_time': float(stat[14]) / os.sysconf('SC_CLK_TCK'),
+                    'percent': container_proc.cpu_percent(interval=0.1)
+                },
+                'threads': int(status.get('Threads', '0').strip()),
+                'voluntary_ctxt_switches': int(status.get('voluntary_ctxt_switches', '0').strip()),
+                'nonvoluntary_ctxt_switches': int(status.get('nonvoluntary_ctxt_switches', '0').strip())
+            }
+        except (psutil.NoSuchProcess, FileNotFoundError, PermissionError) as e:
+            print(f"Error getting container stats: {e}")
+            return None
+
     def test_get_published_messages_service(self):
         """Test the get_published_messages service and write raw data to file."""
         # Wait for configured time to let the nodes publish messages
@@ -374,6 +466,17 @@ class TestEmitterNode(unittest.TestCase):
         if remainder > 0:
             time.sleep(remainder)
 
+        # Get final resource usage
+        final_usage = self.get_container_resource_usage()
+        if final_usage:
+            print("\nFinal container resource usage:")
+            print(f"Page faults (major/minor): {final_usage['page_faults']['major']}/{final_usage['page_faults']['minor']}")
+            print(f"Memory RSS: {final_usage['memory']['rss'] / 1024 / 1024:.2f} MB")
+            print(f"CPU User Time: {final_usage['cpu']['user_time']:.2f}s")
+            print(f"CPU System Time: {final_usage['cpu']['system_time']:.2f}s")
+            print(f"Threads: {final_usage['threads']}")
+            print(f"Context Switches (vol/nonvol): {final_usage['voluntary_ctxt_switches']}/{final_usage['nonvoluntary_ctxt_switches']}")
+
         self.lifecycle_node.deactivate_nodes()
         print("Deactivated nodes")
 
@@ -383,11 +486,40 @@ class TestEmitterNode(unittest.TestCase):
         # Collect message data from all nodes
         self.collect_message_data(published_messages_by_node)
 
+        # Add resource usage to the output data
+        resource_usage = {
+            'initial': self.initial_usage,  # Store initial usage from setUp
+            'final': final_usage,
+            'delta': None
+        }
+
+        if self.initial_usage and final_usage:
+            resource_usage['delta'] = {
+                'page_faults': {
+                    'major': final_usage['page_faults']['major'] - self.initial_usage['page_faults']['major'],
+                    'minor': final_usage['page_faults']['minor'] - self.initial_usage['page_faults']['minor']
+                },
+                'memory': {
+                    'rss_delta': final_usage['memory']['rss'] - self.initial_usage['memory']['rss'],
+                    'vms_delta': final_usage['memory']['vms'] - self.initial_usage['memory']['vms']
+                },
+                'cpu': {
+                    'user_time_delta': final_usage['cpu']['user_time'] - self.initial_usage['cpu']['user_time'],
+                    'system_time_delta': final_usage['cpu']['system_time'] - self.initial_usage['cpu']['system_time']
+                },
+                'context_switches': {
+                    'voluntary_delta': final_usage['voluntary_ctxt_switches'] - self.initial_usage['voluntary_ctxt_switches'],
+                    'nonvoluntary_delta': final_usage['nonvoluntary_ctxt_switches'] - self.initial_usage['nonvoluntary_ctxt_switches']
+                }
+            }
+
         # Write raw message data to JSON file
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         raw_data_filename = f"raw_message_data_{timestamp}.json"
         with open(raw_data_filename, 'w') as raw_data_file:
             self.write_raw_message_data(published_messages_by_node, raw_data_file)
+            # Add resource usage to the JSON output
+            json.dump({'resource_usage': resource_usage}, raw_data_file, indent=2)
         print(f"Raw message data has been written to {raw_data_filename}")
 
         # Update symlink to latest

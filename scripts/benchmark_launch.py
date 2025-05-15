@@ -408,6 +408,10 @@ class TestEmitterNode(unittest.TestCase):
             self.node.destroy_client(client)
         self.message_clients.clear()
 
+        self.lifecycle_node.shutdown_nodes()
+        print("Shutdown nodes")
+
+
     def collect_message_data(self, published_messages_by_node):
         """Collect message data from all nodes.
 

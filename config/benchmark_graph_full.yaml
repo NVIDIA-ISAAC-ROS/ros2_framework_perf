@@ -1,6 +1,6 @@
 # Profiling configuration for the benchmark
 profiling_config:
-  data_collection_time: 30.0  # Time to let the graph run to collect data
+  data_collection_time: 300.0  # Time to let the graph run to collect data
   setup_wait_time: 2.0  # Time to wait after setup before starting
   service_wait_timeout: 10.0  # Maximum time to wait for services to be ready
 

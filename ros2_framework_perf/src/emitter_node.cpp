@@ -65,6 +65,9 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
   // Get node name and YAML config
   node_name_ = declare_parameter("node_name", "EmitterNode");
   yaml_config_ = declare_parameter<std::string>("yaml_config", "");
+  size_t expected_messages = declare_parameter("expected_messages", 1000);  // Default to 1000 if not specified
+
+  RCLCPP_INFO(get_logger(), "Expected messages for preallocation: %zu", expected_messages);
 
   // Parse YAML config
   YAML::Node config = YAML::Load(yaml_config_);
@@ -91,6 +94,9 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       publishers_[pub_config.topic_name] = create_publisher<ros2_framework_perf_interfaces::msg::MessageWithPayload>(
         pub_config.topic_name,
         rclcpp::QoS(10).reliable().durability_volatile());
+
+      // Preallocate message storage based on expected messages
+      published_messages_by_topic_[pub_config.topic_name].reserve(expected_messages);
 
       // Parse trigger
       if (pub["trigger"]["type"].as<std::string>() == "timer") {
@@ -140,6 +146,10 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       sub_config.topic = sub["topic_name"].as<std::string>();
       subscription_configs_.push_back(sub_config);
 
+      // Preallocate message storage based on expected messages
+      received_messages_by_topic_[sub_config.topic].timestamps.reserve(expected_messages);
+      received_messages_by_topic_[sub_config.topic].message_identifiers.reserve(expected_messages);
+
       // Create subscriber
       subscribers_[sub_config.topic] = create_subscription<ros2_framework_perf_interfaces::msg::MessageWithPayload>(
         sub_config.topic,
@@ -152,7 +162,6 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
 
           RCLCPP_DEBUG(this->get_logger(), "Received message on topic %s: %s with timestamp %ld",
             sub_config.topic.c_str(), msg->info.identifier.c_str(), now.nanoseconds());
-
 
           received_messages_by_topic_[sub_config.topic].timestamps.push_back(timestamp);
           received_messages_by_topic_[sub_config.topic].message_identifiers.push_back(msg->info.identifier);
@@ -167,6 +176,10 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       const auto& msg_config = std::get<MessageReceivedTriggerConfig>(config.trigger);
       std::vector<std::shared_ptr<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>> subs;
       for (const auto& topic : msg_config.topics) {
+        // Preallocate message storage based on expected messages
+        received_messages_by_topic_[topic].timestamps.reserve(expected_messages);
+        received_messages_by_topic_[topic].message_identifiers.reserve(expected_messages);
+
         // Create message filter subscriber
         auto sub = std::make_shared<message_filters::Subscriber<ros2_framework_perf_interfaces::msg::MessageWithPayload>>(
           this, topic, rclcpp::QoS(10).reliable().durability_volatile());
@@ -179,6 +192,10 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       const auto& timer_config = std::get<TimerTriggerConfig>(config.trigger);
       // Set up subscribers for each subscription topic
       for (const auto& sub_config : timer_config.subscription_topics) {
+        // Preallocate message storage based on expected messages
+        received_messages_by_topic_[sub_config.topic].timestamps.reserve(expected_messages);
+        received_messages_by_topic_[sub_config.topic].message_identifiers.reserve(expected_messages);
+
         // Create subscriber for this topic
         subscribers_[sub_config.topic] = create_subscription<ros2_framework_perf_interfaces::msg::MessageWithPayload>(
           sub_config.topic,

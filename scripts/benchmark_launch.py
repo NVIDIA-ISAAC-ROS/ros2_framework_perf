@@ -39,10 +39,51 @@ def load_node_configs():
     return config
 
 
+def calculate_expected_messages(config):
+    """Calculate expected number of messages based on runtime and frequencies."""
+    data_collection_time = config['profiling_config']['data_collection_time']
+    expected_messages = 0
+
+    # Calculate messages from timer-triggered publishers
+    for node_config in config['nodes'].values():
+        yaml_config = yaml.safe_load(node_config['config']['yaml_config'])
+        if 'publishers' in yaml_config:
+            for pub in yaml_config['publishers']:
+                if pub['trigger']['type'] == 'timer':
+                    # Get frequency from either direct config or timer group
+                    if 'frequency' in pub['trigger']:
+                        frequency = pub['trigger']['frequency']
+                    elif 'timer_group' in pub['trigger']:
+                        group_name = pub['trigger']['timer_group']
+                        for group in yaml_config.get('timer_groups', []):
+                            if group['name'] == group_name:
+                                frequency = group['frequency']
+                                break
+                    else:
+                        continue
+
+                    # Calculate messages for this publisher
+                    messages = int(data_collection_time * frequency)
+                    expected_messages = max(expected_messages, messages)
+
+    # Add some buffer (20%) to account for any timing variations
+    expected_messages = int(expected_messages * 1.2)
+
+    # Ensure minimum size of 1000 messages
+    return max(expected_messages, 1000)
+
+
 def create_composable_node(node_config, global_settings):
     """Create a ComposableNode from node configuration."""
     # Use node-specific setting if available, otherwise use global setting
     use_intra_process = node_config.get('use_intra_process', global_settings.get('use_intra_process', True))
+
+    # Calculate expected messages for this node
+    config = load_node_configs()
+    expected_messages = calculate_expected_messages(config)
+
+    # Add the expected_messages parameter to the node's config
+    node_config['config']['expected_messages'] = expected_messages
 
     return ComposableNode(
         package="ros2_framework_perf",

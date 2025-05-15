@@ -10,6 +10,17 @@ container_executable: component_container
 node_settings:
   use_intra_process: true  # Enable intraprocess communications for all nodes
 
+perf_config:
+  enabled: false
+  events:
+    - cpu-clock
+    - page-faults
+    - context-switches
+    - cache-misses
+    - branch-misses
+  frequency: 1000
+  call_graph_depth: 2  # Enable call graph with depth 2
+
 nodes:
   camera_node:
     name: camera_node

@@ -9,6 +9,7 @@ import resource
 import psutil
 import signal
 import subprocess
+import threading
 
 import launch
 from launch import LaunchDescription
@@ -160,6 +161,9 @@ class TestEmitterNode(unittest.TestCase):
         node_configs = config['nodes']
         cls.node_names = list(node_configs.keys())
         cls.profiling_config = config['profiling_config']
+        cls.perf_config = config.get('perf_config', {})
+        cls.perf_process = None
+        cls.perf_output_file = None
 
         cls.lifecycle_node = LifecycleTestNode(cls.node_names)
         cls.received_messages = []
@@ -176,17 +180,119 @@ class TestEmitterNode(unittest.TestCase):
         cls.lifecycle_node.configure_nodes()
         print("Configured nodes")
 
-    @classmethod
-    def tearDownClass(cls):
-        print("\n=== Cleaning up Test Class ===")
-        cls.node.destroy_node()
-        print("Shutting down nodes")
-        cls.lifecycle_node.shutdown_nodes()
-        print("Shut down nodes")
-        print("Destroying node")
-        cls.lifecycle_node.destroy_node()
-        print("Destroyed node")
-        rclpy.shutdown()
+    def start_perf_profiling(self, pid):
+        """Start perf profiling for the given process ID."""
+        if not self.perf_config.get('enabled', False):
+            return
+
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        self.perf_output_file = f"perf_data_{timestamp}.data"
+
+        # Build perf command with configured events
+        events = self.perf_config.get('events', ['cpu-clock', 'page-faults', 'context-switches'])
+        event_args = [f'-e {event}' for event in events]
+
+        # Add sampling frequency if specified
+        freq = self.perf_config.get('frequency', 1000)
+        freq_args = [f'-F {freq}']
+
+        # Add call graph depth if specified
+        call_graph = self.perf_config.get('call_graph_depth', 0)
+        call_graph_args = [f'--call-graph=dwarf,{call_graph}'] if call_graph > 0 else []
+
+        # Build the full command
+        cmd = [
+            'sudo', 'perf', 'record',
+            *event_args,
+            *freq_args,
+            *call_graph_args,
+            '-p', str(pid),
+            '-o', self.perf_output_file,
+            '--no-buildid',  # Don't record build IDs
+            '--no-call-graph' if call_graph == 0 else '',  # Disable call graph if depth is 0
+            '--timestamp'  # Add timestamps to events
+        ]
+
+        # Remove empty strings from command
+        cmd = [arg for arg in cmd if arg]
+
+        print(f"\nStarting perf profiling with command: {' '.join(cmd)}")
+        try:
+            self.perf_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid  # Create new process group
+            )
+            # Give perf a moment to start
+            time.sleep(1)
+            if self.perf_process.poll() is not None:
+                # Process ended immediately
+                stdout, stderr = self.perf_process.communicate()
+                print(f"Perf process failed to start. stdout: {stdout.decode()}")
+                print(f"stderr: {stderr.decode()}")
+                self.perf_process = None
+        except Exception as e:
+            print(f"Error starting perf: {e}")
+            self.perf_process = None
+
+    def stop_perf_profiling(self):
+        """Stop perf profiling and generate report."""
+        if not self.perf_process:
+            return
+
+        print("\nStopping perf profiling...")
+        try:
+            # Send SIGINT to the process group
+            os.killpg(os.getpgid(self.perf_process.pid), signal.SIGINT)
+
+            # Wait for the process to finish
+            try:
+                self.perf_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("Perf process did not terminate gracefully, forcing...")
+                os.killpg(os.getpgid(self.perf_process.pid), signal.SIGKILL)
+                self.perf_process.wait()
+
+            if self.perf_output_file and os.path.exists(self.perf_output_file):
+                # Generate report
+                report_file = f"{self.perf_output_file}.report"
+                cmd = [
+                    'sudo', 'perf', 'report',
+                    '-i', self.perf_output_file,
+                    '--stdio',
+                    '--no-children'  # Don't show children in the report
+                ]
+
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+
+                    # Save the report
+                    with open(report_file, 'w') as f:
+                        f.write(result.stdout)
+                    print(f"Perf report saved to {report_file}")
+
+                    # Create symlink to latest
+                    latest_report = "perf_report_latest.txt"
+                    if os.path.exists(latest_report):
+                        os.remove(latest_report)
+                    os.symlink(report_file, latest_report)
+
+                except subprocess.CalledProcessError as e:
+                    print(f"Error generating perf report: {e}")
+                    print(f"stderr: {e.stderr}")
+            else:
+                print(f"Warning: Perf data file not found: {self.perf_output_file}")
+
+        except Exception as e:
+            print(f"Error stopping perf profiling: {e}")
+        finally:
+            self.perf_process = None
 
     def setUp(self):
         # Clear received messages
@@ -216,6 +322,9 @@ class TestEmitterNode(unittest.TestCase):
         if not container_proc:
             print(f"Warning: Could not find container process with executable: {self.container_executable}")
             return
+
+        # Start perf profiling if enabled
+        self.start_perf_profiling(container_proc.pid)
 
         # Get initial stats before activation
         self.initial_usage = self.get_container_resource_usage()
@@ -291,6 +400,9 @@ class TestEmitterNode(unittest.TestCase):
                             print(f"    Type: {types}")
 
     def tearDown(self):
+        # Stop perf profiling
+        self.stop_perf_profiling()
+
         # Destroy all message clients
         for client in self.message_clients.values():
             self.node.destroy_client(client)
@@ -328,12 +440,13 @@ class TestEmitterNode(unittest.TestCase):
                 'lifecycle_transitions': response.lifecycle_transitions
             }
 
-    def write_raw_message_data(self, published_messages_by_node, output_file):
+    def write_raw_message_data(self, published_messages_by_node, output_file, resource_usage=None):
         """Write raw message data to a JSON file for further processing.
 
         Args:
             published_messages_by_node: Dictionary containing message data
             output_file: File object to write JSON data to
+            resource_usage: Dictionary containing resource usage data
         """
         # Convert the data to a serializable format
         serializable_data = {}
@@ -396,11 +509,18 @@ class TestEmitterNode(unittest.TestCase):
             'benchmark_config': config  # Include the full benchmark configuration
         }
 
-        # Write to file
-        json.dump({
+        # Combine all data into a single JSON object
+        complete_data = {
             'metadata': metadata,
             'message_data': serializable_data
-        }, output_file, indent=2)
+        }
+
+        # Add resource usage if provided
+        if resource_usage:
+            complete_data['resource_usage'] = resource_usage
+
+        # Write to file
+        json.dump(complete_data, output_file, indent=2)
 
     def find_container_process(self):
         """Find the container process by looking for the configured executable name."""
@@ -517,9 +637,7 @@ class TestEmitterNode(unittest.TestCase):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         raw_data_filename = f"raw_message_data_{timestamp}.json"
         with open(raw_data_filename, 'w') as raw_data_file:
-            self.write_raw_message_data(published_messages_by_node, raw_data_file)
-            # Add resource usage to the JSON output
-            json.dump({'resource_usage': resource_usage}, raw_data_file, indent=2)
+            self.write_raw_message_data(published_messages_by_node, raw_data_file, resource_usage)
         print(f"Raw message data has been written to {raw_data_filename}")
 
         # Update symlink to latest

@@ -363,24 +363,24 @@ void EmitterNode::handle_timer_trigger(
   const TimerTriggerConfig& config,
   const rclcpp::Time& current_time)
 {
-  auto message = ros2_framework_perf_interfaces::msg::MessageWithPayload();
+  auto message = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
 
   // Set timestamp in both header and info using correct sec/nanosec split
   auto timestamp = builtin_interfaces::msg::Time();
   timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
   timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
 
-  message.header.stamp = timestamp;
-  message.info.publish_timestamp = timestamp;
+  message->header.stamp = timestamp;
+  message->info.publish_timestamp = timestamp;
 
-  message.info.topic_name = topic_name;
+  message->info.topic_name = topic_name;
 
   // Get the publisher config to access message_type and message_size
   auto it = std::find_if(publisher_configs_.begin(), publisher_configs_.end(),
     [&topic_name](const PublisherConfig& config) { return config.topic_name == topic_name; });
   if (it != publisher_configs_.end()) {
-    message.info.type = it->message_type;
-    message.payload.resize(it->message_size, 0);
+    message->info.type = it->message_type;
+    message->payload.resize(it->message_size, 0);
   } else {
     RCLCPP_ERROR(get_logger(), "Publisher config not found for topic %s", topic_name.c_str());
     return;
@@ -390,9 +390,9 @@ void EmitterNode::handle_timer_trigger(
   if (sequence_numbers_.find(topic_name) == sequence_numbers_.end()) {
     sequence_numbers_[topic_name] = 0;
   }
-  message.info.sequence_number = sequence_numbers_[topic_name]++;
-  message.info.originator = this->node_name_;
-  message.info.identifier = message.info.originator + "_" + message.info.type + "_" + std::to_string(message.info.sequence_number);
+  message->info.sequence_number = sequence_numbers_[topic_name]++;
+  message->info.originator = this->node_name_;
+  message->info.identifier = message->info.originator + "_" + message->info.type + "_" + std::to_string(message->info.sequence_number);
 
   // Get parent messages based on subscription mode
   for (const auto& sub_config : config.subscription_topics) {
@@ -407,21 +407,23 @@ void EmitterNode::handle_timer_trigger(
       for (size_t i = 0; i < topic_data.timestamps.size(); ++i) {
         double msg_time = topic_data.timestamps[i].sec + topic_data.timestamps[i].nanosec * 1e-9;
         if (msg_time >= window_start) {
-          message.info.parent_messages.push_back(topic_data.message_identifiers[i]);
+          message->info.parent_messages.push_back(topic_data.message_identifiers[i]);
         } else {
           break;
         }
       }
     } else if (sub_config.mode == "latest") {
       // For latest mode, only include the most recent message
-      message.info.parent_messages.push_back(topic_data.message_identifiers.back());
+      message->info.parent_messages.push_back(topic_data.message_identifiers.back());
     }
   }
 
-  RCLCPP_DEBUG(get_logger(), "Publishing %s on timer at time %ld on topic %s: %s", message.info.identifier.c_str(), current_time.nanoseconds(), topic_name.c_str(), message.info.identifier.c_str());
+  RCLCPP_DEBUG(get_logger(), "Publishing %s on timer at time %ld on topic %s: %s", message->info.identifier.c_str(), current_time.nanoseconds(), topic_name.c_str(), message->info.identifier.c_str());
 
-  publishers_[topic_name]->publish(message);
-  published_messages_by_topic_[topic_name].push_back(message.info);
+  // Store message info before moving the message
+  auto message_info = message->info;
+  publishers_[topic_name]->publish(std::move(message));
+  published_messages_by_topic_[topic_name].push_back(message_info);
 }
 
 void EmitterNode::handle_message_received_trigger(
@@ -435,17 +437,17 @@ void EmitterNode::handle_message_received_trigger(
   timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
 
   // Create and publish the message
-  auto message = ros2_framework_perf_interfaces::msg::MessageWithPayload();
-  message.header.stamp = timestamp;
-  message.info.publish_timestamp = timestamp;
-  message.info.topic_name = topic_name;
+  auto message = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
+  message->header.stamp = timestamp;
+  message->info.publish_timestamp = timestamp;
+  message->info.topic_name = topic_name;
 
   // Get the publisher config to access message_type and message_size
   auto it = std::find_if(publisher_configs_.begin(), publisher_configs_.end(),
     [&topic_name](const PublisherConfig& config) { return config.topic_name == topic_name; });
   if (it != publisher_configs_.end()) {
-    message.info.type = it->message_type;
-    message.payload.resize(it->message_size, 0);
+    message->info.type = it->message_type;
+    message->payload.resize(it->message_size, 0);
   } else {
     RCLCPP_ERROR(get_logger(), "Publisher config not found for topic %s", topic_name.c_str());
     return;
@@ -455,18 +457,21 @@ void EmitterNode::handle_message_received_trigger(
   if (sequence_numbers_.find(topic_name) == sequence_numbers_.end()) {
     sequence_numbers_[topic_name] = 0;
   }
-  message.info.sequence_number = sequence_numbers_[topic_name]++;
-  message.info.originator = this->node_name_;
-  message.info.identifier = message.info.originator + "_" + message.info.type + "_" + std::to_string(message.info.sequence_number);
+  message->info.sequence_number = sequence_numbers_[topic_name]++;
+  message->info.originator = this->node_name_;
+  message->info.identifier = message->info.originator + "_" + message->info.type + "_" + std::to_string(message->info.sequence_number);
 
   // Add parent message identifiers
   for (const auto& msg : msgs) {
-    message.info.parent_messages.push_back(msg->info.identifier);
+    message->info.parent_messages.push_back(msg->info.identifier);
   }
 
-  RCLCPP_DEBUG(get_logger(), "Publishing on message trigger to topic %s: %s", topic_name.c_str(), message.info.identifier.c_str());
-  publishers_[topic_name]->publish(message);
-  published_messages_by_topic_[topic_name].push_back(message.info);
+  RCLCPP_DEBUG(get_logger(), "Publishing on message trigger to topic %s: %s", topic_name.c_str(), message->info.identifier.c_str());
+
+  // Store message info before moving the message
+  auto message_info = message->info;
+  publishers_[topic_name]->publish(std::move(message));
+  published_messages_by_topic_[topic_name].push_back(message_info);
 }
 
 void EmitterNode::handle_get_published_messages(

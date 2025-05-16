@@ -114,6 +114,14 @@ def generate_test_description():
 
     # Create container with all nodes
     container_executable = config.get('container_executable', 'component_container')
+
+    # Set container prefix based on debug configuration
+    debug_config = config.get('debug_config', {})
+    if debug_config.get('enabled', False):
+        prefix = f"gdbserver localhost:{debug_config.get('gdbserver_port', 1234)}"
+    else:
+        prefix = 'chrt -r 99'  # Default real-time priority
+
     container = ComposableNodeContainer(
         name='emitter_container',
         namespace='',
@@ -121,7 +129,7 @@ def generate_test_description():
         executable=container_executable,
         composable_node_descriptions=composable_nodes,
         output='screen',
-        prefix='chrt -r 99'
+        prefix=prefix
     )
 
     return LaunchDescription([

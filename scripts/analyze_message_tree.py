@@ -414,10 +414,10 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     # Get the input filename for plot captions, resolving symlinks
     input_path = Path(raw_data_file)
     if input_path.is_symlink():
-        real_path = input_path.resolve()
-        input_filename = f"{input_path.name} -> {real_path.name}"
+        resolved_path = input_path.resolve()
+        input_file_info = f"{input_path} -> {resolved_path}"
     else:
-        input_filename = input_path.name
+        input_file_info = str(input_path)
 
     # Validate target node
     if not target_node:
@@ -503,13 +503,13 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
         t0 = matched_times[0][1].seconds_nanoseconds()[0] + matched_times[0][1].seconds_nanoseconds()[1] * 1e-9
         x_times = [recv_t.seconds_nanoseconds()[0] + recv_t.seconds_nanoseconds()[1] * 1e-9 - t0 for _, recv_t, _ in matched_times]
         # Y-axis: time relative to publish (0 = publish, (receive-publish) = latency)
-        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-6 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
+        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-3 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
         plt.errorbar(x_times, [0]*len(x_times), yerr=rel_latency_ms, fmt='o', color='purple', ecolor='gray', elinewidth=2, capsize=4, label='Latency (Receive - Publish)')
         plt.scatter(x_times, [0]*len(x_times), color='green', marker='o', label='Publish (0)')
         plt.scatter(x_times, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
         plt.xlabel('Receive Time (seconds, relative to first)')
-        plt.ylabel('Time since publish (milliseconds)')
-        plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_filename}')
+        plt.ylabel('Time since publish (microseconds)')
+        plt.title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_file_info}')
         plt.legend()
         plt.grid(True)
         plt.ylim(bottom=0)
@@ -525,7 +525,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     for i in range(1, len(receive_times)):
         delta = (receive_times[i] - receive_times[i-1]).nanoseconds * 1e-9
         received_deltas.append(delta)
-    received_deltas_ms = [delta * 1000 for delta in received_deltas]
+    received_deltas_ms = [delta * 1e6 for delta in received_deltas]  # Convert to microseconds
     # X-axis: receive time relative to first receive (in seconds)
     if receive_times:
         t0 = receive_times[0].seconds_nanoseconds()[0] + receive_times[0].seconds_nanoseconds()[1] * 1e-9
@@ -539,7 +539,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
     # Latency values for matched publish/receive
     if matched_times:
         x_times_latency = [recv_t.seconds_nanoseconds()[0] + recv_t.seconds_nanoseconds()[1] * 1e-9 - t0 for _, recv_t, _ in matched_times]
-        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-6 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
+        rel_latency_ms = [(recv_t - pub_t).nanoseconds * 1e-3 if pub_t is not None else 0 for pub_t, recv_t, _ in matched_times]
     else:
         x_times_latency = []
         rel_latency_ms = []
@@ -569,15 +569,15 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
                 if len(published_timestamps) >= 2:
                     published_deltas = [published_timestamps[i] - published_timestamps[i-1] for i in range(1, len(published_timestamps))]
                     published_x_times = [published_timestamps[i] - t0 for i in range(1, len(published_timestamps))]
-                    published_deltas_ms = [delta * 1000 for delta in published_deltas]
+                    published_deltas_ms = [delta * 1e6 for delta in published_deltas]  # Convert to microseconds
                     ax1.scatter(published_x_times, published_deltas_ms, c='red', s=20, alpha=0.5, label=f'Published Deltas ({publisher_node})')
                 break
         if expected_frequency is not None:
             expected_delta = 1.0 / expected_frequency
-            expected_delta_ms = expected_delta * 1000
+            expected_delta_ms = expected_delta * 1e6  # Convert to microseconds
             ax1.axhline(y=expected_delta_ms, color='g', linestyle='--', alpha=0.8, label=f'Expected Delta ({expected_frequency} Hz)')
-        ax1.set_ylabel('Timestamp Delta (milliseconds)')
-        ax1.set_title(f'Timestamp Deltas for {target_topic}\nSource: {input_filename}')
+        ax1.set_ylabel('Timestamp Delta (microseconds)')
+        ax1.set_title(f'Timestamp Deltas for {target_topic}\nSource: {input_file_info}')
         ax1.grid(True)
         ax1.legend()
         # --- Latency ---
@@ -585,8 +585,8 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
         ax2.scatter(x_times_latency, [0]*len(x_times_latency), color='green', marker='o', label='Publish (0)')
         ax2.scatter(x_times_latency, rel_latency_ms, color='blue', marker='x', label='Receive (relative)')
         ax2.set_xlabel('Receive Time (seconds, relative to first)')
-        ax2.set_ylabel('Time since publish (milliseconds)')
-        ax2.set_title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_filename}')
+        ax2.set_ylabel('Time since publish (microseconds)')
+        ax2.set_title(f'Latency (Receive - Publish) for {target_node} {target_topic}\nSource: {input_file_info}')
         ax2.legend()
         ax2.grid(True)
         ax2.set_ylim(bottom=0)
@@ -600,7 +600,7 @@ def analyze_raw_data(raw_data_file, output_file, include_message_flow=False, inc
 
     # Calculate timestamp delta statistics
     print("\nCalculating timestamp deltas...")
-    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions, input_filename)
+    calculate_timestamp_deltas(node_data, target_topic, output, target_node, expected_frequency, message_data, lifecycle_transitions, input_file_info)
 
     # Analyze message flow if requested
     if include_message_flow:
@@ -632,7 +632,15 @@ def main():
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         args.output = f"message_tree_{timestamp}.txt"
 
-    print(f"\nAnalyzing message tree from: {args.raw_data_file}")
+    # Resolve symlink for input file path
+    input_path = Path(args.raw_data_file)
+    if input_path.is_symlink():
+        resolved_path = input_path.resolve()
+        input_file_info = f"{input_path} -> {resolved_path}"
+    else:
+        input_file_info = str(input_path)
+
+    print(f"\nAnalyzing message tree from: {input_file_info}")
     print(f"Output will be written to: {args.output}")
     print(f"Analyzing node: {args.node}")
     print(f"Analyzing topic: {args.topic}")

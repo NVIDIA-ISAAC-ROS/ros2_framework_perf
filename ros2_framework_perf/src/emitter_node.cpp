@@ -408,6 +408,8 @@ void EmitterNode::handle_timer_trigger(
         double msg_time = topic_data.timestamps[i].sec + topic_data.timestamps[i].nanosec * 1e-9;
         if (msg_time >= window_start) {
           message.info.parent_messages.push_back(topic_data.message_identifiers[i]);
+        } else {
+          break;
         }
       }
     } else if (sub_config.mode == "latest") {

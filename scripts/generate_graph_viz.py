@@ -87,9 +87,10 @@ def generate_dot_graph(config):
     """Generate DOT format graph visualization."""
     dot_lines = [
         'digraph G {',
-        '    rankdir=LR;',
-        '    node [fontsize=12];',
-        '    edge [fontsize=10];',
+        '    rankdir=TB;',
+        '    graph [ranksep="0.8"];',
+        '    node [fontsize=24];',
+        '    edge [fontsize=20];',
         '',
         '    // Node style definitions',
         '    node [shape=oval, style=filled, fillcolor="#76B900"];  // Default node style',

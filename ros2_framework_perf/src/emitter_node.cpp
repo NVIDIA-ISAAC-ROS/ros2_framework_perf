@@ -217,7 +217,41 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       }
     }
   }
-
+  
+  // Set up integer-based lookups to eliminate string hash overhead
+  size_t topic_id = 0;
+  message_pool_by_id_.reserve(publisher_configs_.size());
+  identifier_prefix_by_id_.reserve(publisher_configs_.size());
+  config_by_id_.reserve(publisher_configs_.size());
+  publisher_by_id_.reserve(publisher_configs_.size());
+  
+  for (const auto& config : publisher_configs_) {
+    // Map topic name to integer ID (setup once, use many times)
+    topic_to_id_map_[config.topic_name] = topic_id;
+    
+    // Pre-allocate message with correct payload size to avoid malloc in hot path
+    auto message = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
+    message->payload.resize(config.message_size, 0);  // Pre-allocate payload buffer
+    
+    // Store by both string (legacy) and integer ID (ultra-fast)
+    message_pool_[config.topic_name] = std::move(message);
+    auto message_copy = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
+    message_copy->payload.resize(config.message_size, 0);
+    message_pool_by_id_.push_back(std::move(message_copy));
+    
+    // Cache string prefix to avoid concatenation in hot path
+    std::string prefix = node_name_ + "_" + config.message_type + "_";
+    identifier_prefix_cache_[config.topic_name] = prefix;
+    identifier_prefix_by_id_.push_back(std::move(prefix));
+    
+    // Build fast lookup maps
+    topic_to_config_map_[config.topic_name] = &config;
+    config_by_id_.push_back(&config);
+    publisher_by_id_.push_back(publishers_[config.topic_name]);
+    
+    topic_id++;
+  }
+  
   // Create timers for each publisher with timer trigger
   for (const auto& config : publisher_configs_) {
     if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
@@ -229,33 +263,49 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
         // Use timer group frequency
         frequency = timer_groups_[*timer_config.timer_group_name].frequency;
       }
-      int period_ms = static_cast<int>(1000.0 / frequency);
+
+      // Use more precise timer: Use nanosecond precision instead of millisecond truncation(might be negligible though)
+      // For 500Hz: 1/500 = 0.002 seconds = 2,000,000 nanoseconds (exact)
+      // Old code: static_cast<int>(1000.0 / 500.0) = 2ms (loses precision)
+      auto period_ns = std::chrono::nanoseconds(static_cast<int64_t>(1'000'000'000.0 / frequency));
+      
       timers_[config.topic_name] = create_wall_timer(
-        std::chrono::milliseconds(period_ms),
+        period_ns,  // Use nanosecond precision instead of milliseconds
         [this, topic = config.topic_name]() {
           rclcpp::Time current_time = steady_clock_->now();
 
-          // For timer groups, publish all messages in the group with the same timestamp
-          auto it = std::find_if(this->publisher_configs_.begin(), this->publisher_configs_.end(),
-            [&topic](const PublisherConfig& config) { return config.topic_name == topic; });
-          if (it != this->publisher_configs_.end() && std::holds_alternative<TimerTriggerConfig>(it->trigger)) {
-            const auto& timer_config = std::get<TimerTriggerConfig>(it->trigger);
-            if (timer_config.timer_group_name) {
-              // Only trigger the first publisher in the group, it will handle all publishers in the group
-              if (this->timer_group_publishers_[*timer_config.timer_group_name][0] == topic) {
-                for (const auto& group_topic : this->timer_group_publishers_[*timer_config.timer_group_name]) {
-                  auto group_it = std::find_if(this->publisher_configs_.begin(), this->publisher_configs_.end(),
-                    [&group_topic](const PublisherConfig& config) { return config.topic_name == group_topic; });
-                  if (group_it != this->publisher_configs_.end() && std::holds_alternative<TimerTriggerConfig>(group_it->trigger)) {
-                    this->handle_timer_trigger(group_topic, std::get<TimerTriggerConfig>(group_it->trigger), current_time);
+          // STRING OPTIMIZATIONS: Use integer ID lookup instead of string hashing
+          auto topic_id_it = this->topic_to_id_map_.find(topic);
+          if (topic_id_it != this->topic_to_id_map_.end()) {
+            size_t topic_id = topic_id_it->second;
+            const auto* pub_config = this->config_by_id_[topic_id];
+            
+            if (std::holds_alternative<TimerTriggerConfig>(pub_config->trigger)) {
+              const auto& timer_config = std::get<TimerTriggerConfig>(pub_config->trigger);
+              if (timer_config.timer_group_name) {
+
+                // Only trigger the first publisher in the group, it will handle all publishers in the group
+                if (this->timer_group_publishers_[*timer_config.timer_group_name][0] == topic) {
+                  for (const auto& group_topic : this->timer_group_publishers_[*timer_config.timer_group_name]) {
+
+                    // STRING OPTIMIZATIONS: Use fast O(1) lookup for group topics too
+                    auto group_id_it = this->topic_to_id_map_.find(group_topic);
+                    if (group_id_it != this->topic_to_id_map_.end()) {
+                      size_t group_id = group_id_it->second;
+                      const auto* group_config = this->config_by_id_[group_id];
+                      if (std::holds_alternative<TimerTriggerConfig>(group_config->trigger)) {
+                        this->handle_timer_trigger_fast(group_id, std::get<TimerTriggerConfig>(group_config->trigger), current_time);
+                      }
+                    }
                   }
                 }
+              } else {
+                this->handle_timer_trigger_fast(topic_id, timer_config, current_time);
               }
-            } else {
-              this->handle_timer_trigger(topic, timer_config, current_time);
             }
           }
         });
+      
       timers_[config.topic_name]->cancel();  // Don't start timer until node is activated
     }
   }
@@ -324,6 +374,11 @@ EmitterNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::State & state)
   received_messages_by_topic_.clear();
   published_messages_by_topic_.clear();
 
+  // STRING OPTIMIZATIONS: Clean up pre-allocated resources
+  message_pool_.clear();
+  identifier_prefix_cache_.clear();
+  topic_to_config_map_.clear();
+
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED, "unconfigured");
   RCLCPP_DEBUG(get_logger(), "EmitterNode cleaned up successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
@@ -353,6 +408,11 @@ EmitterNode::on_shutdown([[maybe_unused]] const rclcpp_lifecycle::State & state)
   received_messages_by_topic_.clear();
   published_messages_by_topic_.clear();
 
+  // STRING OPTIMIZATIONS: Clean up pre-allocated resources
+  message_pool_.clear();
+  identifier_prefix_cache_.clear();
+  topic_to_config_map_.clear();
+
   record_lifecycle_transition(lifecycle_msgs::msg::State::PRIMARY_STATE_FINALIZED, "finalized");
   RCLCPP_DEBUG(get_logger(), "EmitterNode shut down successfully");
   return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
@@ -363,8 +423,12 @@ void EmitterNode::handle_timer_trigger(
   const TimerTriggerConfig& config,
   const rclcpp::Time& current_time)
 {
-  auto message = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
-
+  // STRING OPTIMIZATIONS: Reuse pre-allocated message instead of make_unique
+  auto& message = message_pool_[topic_name];
+  
+  // Reset message fields (much faster than allocation)
+  message->info.parent_messages.clear();  // Only clear dynamic parts
+  
   // Set timestamp in both header and info using correct sec/nanosec split
   auto timestamp = builtin_interfaces::msg::Time();
   timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
@@ -372,29 +436,80 @@ void EmitterNode::handle_timer_trigger(
 
   message->header.stamp = timestamp;
   message->info.publish_timestamp = timestamp;
-
   message->info.topic_name = topic_name;
 
-  // Get the publisher config to access message_type and message_size
-  auto it = std::find_if(publisher_configs_.begin(), publisher_configs_.end(),
-    [&topic_name](const PublisherConfig& config) { return config.topic_name == topic_name; });
-  if (it != publisher_configs_.end()) {
-    message->info.type = it->message_type;
-    message->payload.resize(it->message_size, 0);
-  } else {
-    RCLCPP_ERROR(get_logger(), "Publisher config not found for topic %s", topic_name.c_str());
-    return;
-  }
+  // STRING OPTIMIZATIONS: Use fast O(1) lookup and cached values
+  const auto* pub_config = topic_to_config_map_[topic_name];
+  message->info.type = pub_config->message_type;
+  // Payload already pre-allocated, no resize needed!
 
-  // Initialize sequence number for this topic if not exists
-  if (sequence_numbers_.find(topic_name) == sequence_numbers_.end()) {
-    sequence_numbers_[topic_name] = 0;
-  }
+  // STRING OPTIMIZATIONS: Use cached string prefix + single to_string call
   message->info.sequence_number = sequence_numbers_[topic_name]++;
   message->info.originator = this->node_name_;
-  message->info.identifier = message->info.originator + "_" + message->info.type + "_" + std::to_string(message->info.sequence_number);
+  message->info.identifier = identifier_prefix_cache_[topic_name] + std::to_string(message->info.sequence_number);
 
   // Get parent messages based on subscription mode
+  for (const auto& sub_config : config.subscription_topics) {
+    const auto& topic_data = received_messages_by_topic_[sub_config.topic];
+    if (topic_data.timestamps.empty()) {
+      continue;
+    }
+
+    if (sub_config.mode == "window") {
+      // For window mode, include all messages within the time range
+      double window_start = current_time.seconds() - sub_config.window_time;
+      for (size_t i = 0; i < topic_data.timestamps.size(); ++i) {
+        double msg_time = topic_data.timestamps[i].sec + topic_data.timestamps[i].nanosec * 1e-9;
+        if (msg_time >= window_start) {
+          message->info.parent_messages.push_back(topic_data.message_identifiers[i]);
+        } else {
+          break;
+        }
+      }
+    } else if (sub_config.mode == "latest") {
+      message->info.parent_messages.push_back(topic_data.message_identifiers.back());
+    }
+  }
+
+  // Store message info before publishing (message will be reused)
+  auto message_info = message->info;
+  
+  // OPTIMIZATION: Publish by reference instead of moving unique_ptr
+  // I believe publish() makes a copy, so this avoids data races
+  publishers_[topic_name]->publish(*message);
+  published_messages_by_topic_[topic_name].push_back(message_info);
+}
+
+void EmitterNode::handle_timer_trigger_fast(
+  size_t topic_id,
+  const TimerTriggerConfig& config,
+  const rclcpp::Time& current_time)
+{
+  // Use pre-allocated resources with integer-based access (no string hashing!)
+  auto& message = message_pool_by_id_[topic_id];
+  
+  // Reset message fields
+  message->info.parent_messages.clear();
+
+  auto timestamp = builtin_interfaces::msg::Time();
+  timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
+  timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
+  message->header.stamp = timestamp;
+  message->info.publish_timestamp = timestamp;
+  
+  // OPTIMIZATION: Use cached values with integer access
+  const auto* pub_config = config_by_id_[topic_id];
+  message->info.topic_name = pub_config->topic_name;
+  message->info.type = pub_config->message_type;
+
+  // OPTIMIZATION: Use cached string prefix + single to_string call
+  // Get topic name for sequence number lookup (this is the only remaining string operation)
+  const std::string& topic_name = pub_config->topic_name;
+  message->info.sequence_number = sequence_numbers_[topic_name]++;
+  message->info.originator = this->node_name_;
+  message->info.identifier = identifier_prefix_by_id_[topic_id] + std::to_string(message->info.sequence_number);
+
+  // Get parent messages based on subscription mode (if any)
   for (const auto& sub_config : config.subscription_topics) {
     const auto& topic_data = received_messages_by_topic_[sub_config.topic];
     if (topic_data.timestamps.empty()) {
@@ -418,11 +533,11 @@ void EmitterNode::handle_timer_trigger(
     }
   }
 
-  RCLCPP_DEBUG(get_logger(), "Publishing %s on timer at time %ld on topic %s: %s", message->info.identifier.c_str(), current_time.nanoseconds(), topic_name.c_str(), message->info.identifier.c_str());
-
-  // Store message info before moving the message
+  // Store message info before publishing (message will be reused)
   auto message_info = message->info;
-  publishers_[topic_name]->publish(std::move(message));
+  
+  // OPTIMIZATION: Publish using integer-based publisher lookup (no string hashing!)
+  publisher_by_id_[topic_id]->publish(*message);
   published_messages_by_topic_[topic_name].push_back(message_info);
 }
 

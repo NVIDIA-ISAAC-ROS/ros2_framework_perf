@@ -113,7 +113,7 @@ def generate_test_description():
         print(node_config['config']['yaml_config'])
 
     # Create container with all nodes
-    container_executable = config.get('container_executable', 'component_container')
+    container_executable = config.get('container_executable', 'component_container_event')
 
     # Set container prefix based on debug configuration
     debug_config = config.get('debug_config', {})
@@ -372,8 +372,8 @@ class TestEmitterNode(unittest.TestCase):
             print(f"Warning: Could not find container process with executable: {self.container_executable}")
             return
 
-        # Start perf profiling if enabled
-        self.start_perf_profiling(container_proc.pid)
+        # Start perf profiling if enabled - MOVED to after setup
+        # self.start_perf_profiling(container_proc.pid)
 
         # Get initial stats before activation
         self.initial_usage = self.get_container_resource_usage()
@@ -447,6 +447,11 @@ class TestEmitterNode(unittest.TestCase):
                     for service, types in self.node.get_service_names_and_types():
                         if service == service_name_by_node_name[node_name]:
                             print(f"    Type: {types}")
+
+        # Start perf profiling AFTER services are ready but BEFORE message passing begins
+        container_proc = self.find_container_process()
+        if container_proc:
+            self.start_perf_profiling(container_proc.pid)
 
     def tearDown(self):
         # Stop perf profiling

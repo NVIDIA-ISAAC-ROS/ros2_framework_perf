@@ -24,6 +24,7 @@
 #include <vector>
 #include <variant>
 #include <optional>
+#include <chrono>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
@@ -122,6 +123,10 @@ private:
     const std::string& topic_name,
     const TimerTriggerConfig& config,
     const rclcpp::Time& current_time);
+  void handle_timer_trigger_fast(
+    size_t topic_id,
+    const TimerTriggerConfig& config,
+    const rclcpp::Time& current_time);
   void handle_message_received_trigger(
     const std::string& topic_name,
     const MessageReceivedTriggerConfig& config,
@@ -145,6 +150,18 @@ private:
   std::map<std::string, std::vector<ros2_framework_perf_interfaces::msg::MessageInfo>> published_messages_by_topic_;
   std::vector<PublisherConfig> publisher_configs_;
   std::vector<SubscriptionConfig> subscription_configs_;  // Added for standalone subscriptions
+
+  // OPTIMIZATION: Pre-allocated resources to avoid some malloc ops in hot path
+  std::unordered_map<std::string, std::unique_ptr<ros2_framework_perf_interfaces::msg::MessageWithPayload>> message_pool_;
+  std::unordered_map<std::string, std::string> identifier_prefix_cache_;  // Cached string prefixes to avoid concatenation
+  std::unordered_map<std::string, const PublisherConfig*> topic_to_config_map_;  // Fast O(1) lookup instead of linear search
+
+  // OPTIMIZATION: INTEGER-BASED LOOKUPS - Eliminate string hash overhead
+  std::unordered_map<std::string, size_t> topic_to_id_map_;
+  std::vector<std::unique_ptr<ros2_framework_perf_interfaces::msg::MessageWithPayload>> message_pool_by_id_;
+  std::vector<std::string> identifier_prefix_by_id_;
+  std::vector<const PublisherConfig*> config_by_id_;
+  std::vector<rclcpp::Publisher<ros2_framework_perf_interfaces::msg::MessageWithPayload>::SharedPtr> publisher_by_id_;
 
   // Message filters
   using MessageType = ros2_framework_perf_interfaces::msg::MessageWithPayload;

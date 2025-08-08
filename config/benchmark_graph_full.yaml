@@ -4,7 +4,7 @@ profiling_config:
   setup_wait_time: 2.0  # Time to wait after setup before starting
   service_wait_timeout: 10.0  # Maximum time to wait for services to be ready
 
-container_executable: component_container_event
+container_executable: component_container
 
 # Debug configuration
 debug_config:

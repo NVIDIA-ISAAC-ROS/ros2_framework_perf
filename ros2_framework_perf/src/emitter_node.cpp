@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
+// SPDX-Generated-By: Cursor
 
 #include "ros2_framework_perf/emitter_node.hpp"
 #include "ros2_framework_perf_interfaces/msg/message_with_payload.hpp"
@@ -217,41 +218,41 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       }
     }
   }
-  
+
   // Set up integer-based lookups to eliminate string hash overhead
   size_t topic_id = 0;
   message_pool_by_id_.reserve(publisher_configs_.size());
   identifier_prefix_by_id_.reserve(publisher_configs_.size());
   config_by_id_.reserve(publisher_configs_.size());
   publisher_by_id_.reserve(publisher_configs_.size());
-  
+
   for (const auto& config : publisher_configs_) {
     // Map topic name to integer ID (setup once, use many times)
     topic_to_id_map_[config.topic_name] = topic_id;
-    
+
     // Pre-allocate message with correct payload size to avoid malloc in hot path
     auto message = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
     message->payload.resize(config.message_size, 0);  // Pre-allocate payload buffer
-    
+
     // Store by both string (legacy) and integer ID (ultra-fast)
     message_pool_[config.topic_name] = std::move(message);
     auto message_copy = std::make_unique<ros2_framework_perf_interfaces::msg::MessageWithPayload>();
     message_copy->payload.resize(config.message_size, 0);
     message_pool_by_id_.push_back(std::move(message_copy));
-    
+
     // Cache string prefix to avoid concatenation in hot path
     std::string prefix = node_name_ + "_" + config.message_type + "_";
     identifier_prefix_cache_[config.topic_name] = prefix;
     identifier_prefix_by_id_.push_back(std::move(prefix));
-    
+
     // Build fast lookup maps
     topic_to_config_map_[config.topic_name] = &config;
     config_by_id_.push_back(&config);
     publisher_by_id_.push_back(publishers_[config.topic_name]);
-    
+
     topic_id++;
   }
-  
+
   // Create timers for each publisher with timer trigger
   for (const auto& config : publisher_configs_) {
     if (std::holds_alternative<TimerTriggerConfig>(config.trigger)) {
@@ -268,7 +269,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
       // For 500Hz: 1/500 = 0.002 seconds = 2,000,000 nanoseconds (exact)
       // Old code: static_cast<int>(1000.0 / 500.0) = 2ms (loses precision)
       auto period_ns = std::chrono::nanoseconds(static_cast<int64_t>(1'000'000'000.0 / frequency));
-      
+
       timers_[config.topic_name] = create_wall_timer(
         period_ns,  // Use nanosecond precision instead of milliseconds
         [this, topic = config.topic_name]() {
@@ -279,7 +280,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
           if (topic_id_it != this->topic_to_id_map_.end()) {
             size_t topic_id = topic_id_it->second;
             const auto* pub_config = this->config_by_id_[topic_id];
-            
+
             if (std::holds_alternative<TimerTriggerConfig>(pub_config->trigger)) {
               const auto& timer_config = std::get<TimerTriggerConfig>(pub_config->trigger);
               if (timer_config.timer_group_name) {
@@ -305,7 +306,7 @@ EmitterNode::on_configure([[maybe_unused]] const rclcpp_lifecycle::State & state
             }
           }
         });
-      
+
       timers_[config.topic_name]->cancel();  // Don't start timer until node is activated
     }
   }
@@ -425,10 +426,10 @@ void EmitterNode::handle_timer_trigger(
 {
   // STRING OPTIMIZATIONS: Reuse pre-allocated message instead of make_unique
   auto& message = message_pool_[topic_name];
-  
+
   // Reset message fields (much faster than allocation)
   message->info.parent_messages.clear();  // Only clear dynamic parts
-  
+
   // Set timestamp in both header and info using correct sec/nanosec split
   auto timestamp = builtin_interfaces::msg::Time();
   timestamp.sec = static_cast<int32_t>(current_time.nanoseconds() / 1000000000);
@@ -473,7 +474,7 @@ void EmitterNode::handle_timer_trigger(
 
   // Store message info before publishing (message will be reused)
   auto message_info = message->info;
-  
+
   // OPTIMIZATION: Publish by reference instead of moving unique_ptr
   // I believe publish() makes a copy, so this avoids data races
   publishers_[topic_name]->publish(*message);
@@ -487,7 +488,7 @@ void EmitterNode::handle_timer_trigger_fast(
 {
   // Use pre-allocated resources with integer-based access (no string hashing!)
   auto& message = message_pool_by_id_[topic_id];
-  
+
   // Reset message fields
   message->info.parent_messages.clear();
 
@@ -496,7 +497,7 @@ void EmitterNode::handle_timer_trigger_fast(
   timestamp.nanosec = static_cast<uint32_t>(current_time.nanoseconds() % 1000000000);
   message->header.stamp = timestamp;
   message->info.publish_timestamp = timestamp;
-  
+
   // OPTIMIZATION: Use cached values with integer access
   const auto* pub_config = config_by_id_[topic_id];
   message->info.topic_name = pub_config->topic_name;
@@ -535,7 +536,7 @@ void EmitterNode::handle_timer_trigger_fast(
 
   // Store message info before publishing (message will be reused)
   auto message_info = message->info;
-  
+
   // OPTIMIZATION: Publish using integer-based publisher lookup (no string hashing!)
   publisher_by_id_[topic_id]->publish(*message);
   published_messages_by_topic_[topic_name].push_back(message_info);

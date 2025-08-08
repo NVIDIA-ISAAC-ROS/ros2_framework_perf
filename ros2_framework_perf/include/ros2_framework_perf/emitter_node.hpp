@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
+// SPDX-Generated-By: Cursor
 
 #ifndef ROS2_FRAMEWORK_PERF_EMITTER_NODE_HPP_
 #define ROS2_FRAMEWORK_PERF_EMITTER_NODE_HPP_

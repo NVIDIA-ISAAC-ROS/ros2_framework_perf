@@ -1,4 +1,4 @@
-// Example YAML configuration format:
+# Example YAML configuration format:
 publishers:
   - topic_name: "/sensor/data"
     message_size: 1024  # bytes

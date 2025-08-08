@@ -4,7 +4,7 @@ This package provides a benchmarking framework for measuring message processing 
 of ROS 2 application graphs. It launches configurable EmitterNode instances within
 a composable node container to simulate application workloads and measure performance metrics.
 
-This package is inspired by the [ros2_performance](https://github.com/iRobotEducation/ros2_performance) package from iRobot. In this framework, we use launch files with composable nodes instead which facilitates measuring more complex pipelines including multi-process flows. Our measurements also include the end-to-end message journey include the executor latencies, middleware transport time, and more from initial publish through new messages published as a result to the final subscriber callback invocation.
+This package is inspired by the [ros2_performance](https://github.com/irobot-ros/ros2-performance) package from iRobot. In this framework, we use launch files with composable nodes instead which facilitates measuring more complex pipelines including multi-process flows. Our measurements also include the end-to-end message journey include the executor latencies, middleware transport time, and more from initial publish through new messages published as a result to the final subscriber callback invocation.
 
 ## Key Features
 

@@ -14,6 +14,8 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-Generated-By: Cursor
+
 import os
 
 from ament_index_python.packages import get_package_share_directory

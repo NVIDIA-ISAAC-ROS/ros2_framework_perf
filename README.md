@@ -1,7 +1,5 @@
 # ros2_framework_perf
 
-ROS 2 Framework Performance Benchmark Launcher
-
 This package provides a benchmarking framework for measuring message processing performance
 of ROS 2 application graphs. It launches configurable EmitterNode instances within
 a composable node container to simulate application workloads and measure performance metrics.
@@ -10,7 +8,7 @@ This package is inspired by the [ros2_performance](https://github.com/iRobotEduc
 
 ## Key Features
 
-- Launches multiple EmitterNode instances based on YAML configuration
+- Launches multiple `EmitterNode` instances based on YAML configuration
 - Manages node lifecycle transitions (configure, activate, deactivate, shutdown)
 - Collects message publishing/receiving data with timestamps
 - Monitors system resource usage (CPU, memory, page faults, context switches)
@@ -33,7 +31,6 @@ The benchmark generates:
 - Perf profiling reports (if enabled)
 - Symlinks to latest results for easy access
 
-Measures performance of executor and transport in ROS 2 framework using synthetic data and tracing.
 
 # Running the benchmark
 ## Environment

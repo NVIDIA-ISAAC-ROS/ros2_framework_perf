@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-Generated-By: Cursor
 
 cmake_minimum_required(VERSION 3.8)
 project(ros2_framework_perf)

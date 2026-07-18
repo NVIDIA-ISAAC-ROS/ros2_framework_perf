@@ -1,0 +1,43 @@
+name: Rolling CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - rolling
+      - feature/**
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    container:
+      image: ros:rolling-ros-base
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools and dependencies
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions \
+            python3-rosdep
+          rosdep update
+          rosdep install --from-paths . --ignore-src -y
+
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/rolling/setup.bash
+          colcon build \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            --packages-up-to-regex 'ros2_framework_perf.*'
+
+      - name: Test
+        shell: bash
+        run: |
+          source /opt/ros/rolling/setup.bash
+          source install/setup.bash
+          colcon test --packages-select ros2_framework_perf
+          colcon test-result --verbose

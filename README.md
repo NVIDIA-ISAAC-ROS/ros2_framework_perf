@@ -31,6 +31,32 @@ The benchmark generates:
 - Perf profiling reports (if enabled)
 - Symlinks to latest results for easy access
 
+## Framework-Ceiling Microbenchmarks
+
+The repository also includes focused CPU-only microbenchmarks for measuring executor dispatch and
+minimal intra-process message-passing ceilings. They use continuously ready `rclcpp::Waitable`
+sources rather than periodic timers:
+
+- `int64_ceiling_benchmark`: minimal `std_msgs/msg/Int64` source-to-sink flows
+- `scheduler_ceiling_benchmark`: executor dispatch with no message transport
+
+A YAML-driven runner sweeps EventsCBGExecutor worker threads, flows/operators, and repeated runs:
+
+```bash
+python3 src/ros2_framework_perf/scripts/run_ceiling_benchmarks.py \
+  --config src/ros2_framework_perf/config/framework_ceiling.yaml
+```
+
+Summarize repeated-run medians and validate executor-dispatch invariants:
+
+```bash
+python3 src/ros2_framework_perf/scripts/summarize_ceiling_results.py \
+  ceiling_benchmark_results/<timestamp>
+```
+
+See [Framework-Ceiling Microbenchmarks](docs/framework_ceiling.md) for methodology, metrics, and
+limitations.
+
 
 # Running the benchmark
 ## Environment

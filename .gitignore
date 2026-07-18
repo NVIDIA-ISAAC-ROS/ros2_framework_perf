@@ -1,2 +1,5 @@
 # Ignore all pycache files
 **/__pycache__/**
+
+# Ignore generated framework-ceiling benchmark results
+ceiling_benchmark_results/

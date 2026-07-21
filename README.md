@@ -35,7 +35,7 @@ The benchmark generates:
 
 The repository also includes focused CPU-only microbenchmarks for measuring executor dispatch and
 minimal intra-process message-passing ceilings. They use continuously ready `rclcpp::Waitable`
-sources rather than periodic timers:
+sources:
 
 - `int64_ceiling_benchmark`: minimal `std_msgs/msg/Int64` source-to-sink flows
 - `scheduler_ceiling_benchmark`: executor dispatch with no message transport

@@ -9,7 +9,6 @@ limits:
 2. Executor dispatch throughput with no message transport or application work.
 
 Both benchmarks use continuously ready, guard-condition-backed `rclcpp::Waitable` instances.
-There is no periodic source timer in the measured path.
 
 ## Why a separate microbenchmark path?
 

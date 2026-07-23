@@ -97,6 +97,7 @@ Run only one benchmark family:
 
 ```bash
 python3 src/ros2_framework_perf/scripts/run_ceiling_benchmarks.py \
+  --config src/ros2_framework_perf/config/framework_ceiling.yaml \
   --benchmark message_passing
 ```
 
@@ -126,8 +127,8 @@ an invariant fails, or a required metric is missing.
   competition between continuously ready source work and sink callbacks can dominate.
 - Latency begins immediately before `publish()`. Source scheduling delay before that timestamp is
   intentionally outside the latency interval.
-- Performance results are specific to the ROS distribution, `rclcpp` version, RMW implementation,
-  build type, hardware, kernel, and system load. Record those inputs and compare repeated-run
-  medians rather than isolated runs.
+- Performance results depend on the ROS distribution, `rclcpp` version, build type, compiler,
+  hardware, kernel, CPU configuration, and system load. Record these inputs and compare
+  repeated-run medians rather than isolated runs.
 - Rolling changes continuously. For reproducible published results, record the container image
   digest and package versions used for a run.

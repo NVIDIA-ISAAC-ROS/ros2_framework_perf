@@ -24,12 +24,16 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from statistics import median
+
+import yaml
 
 
 BENCHMARK_FIELDS = {
     'int64_message_passing': {
+        'config_name': 'message_passing',
         'dimension': 'flows',
         'metrics': [
             'source_publish_msg_s',
@@ -42,6 +46,7 @@ BENCHMARK_FIELDS = {
         ],
     },
     'scheduler_dispatch': {
+        'config_name': 'scheduler',
         'dimension': 'operators',
         'metrics': [
             'throughput_ops_s',
@@ -59,13 +64,77 @@ def load_results(directory):
             continue
         with path.open('r', encoding='utf-8') as result_file:
             result = json.load(result_file)
-        if result.get('benchmark') in BENCHMARK_FIELDS:
-            result['_path'] = str(path)
-            results.append(result)
+        benchmark = result.get('benchmark')
+        if benchmark not in BENCHMARK_FIELDS:
+            raise ValueError(
+                f'{path}: unknown ceiling benchmark {benchmark!r}')
+        result['_path'] = str(path)
+        results.append(result)
     if not results:
         raise ValueError(
             f'no ceiling benchmark result JSON files found in {directory}')
     return results
+
+
+def validate_expected_results(directory, results):
+    """Validate result identities against the effective run configuration."""
+    config_path = directory / 'framework_ceiling.yaml'
+    if not config_path.exists():
+        return []
+
+    with config_path.open('r', encoding='utf-8') as config_file:
+        config = yaml.safe_load(config_file)
+    if not isinstance(config, dict):
+        raise ValueError(f'invalid ceiling benchmark config: {config_path}')
+
+    repetitions = int(config.get('repetitions', 0))
+    if repetitions <= 0:
+        raise ValueError(
+            f'ceiling benchmark config has invalid repetitions: {config_path}')
+    executor = config.get('executor')
+
+    expected = Counter()
+    for benchmark, definition in BENCHMARK_FIELDS.items():
+        benchmark_config = config.get(definition['config_name'], {})
+        if not benchmark_config.get('enabled', False):
+            continue
+        for cell in benchmark_config.get('matrix', []):
+            for run_index in range(1, repetitions + 1):
+                expected[(
+                    benchmark,
+                    executor,
+                    int(cell['threads']),
+                    int(cell[definition['dimension']]),
+                    run_index,
+                )] += 1
+
+    actual = Counter()
+    errors = []
+    for result in results:
+        definition = BENCHMARK_FIELDS[result['benchmark']]
+        required = [
+            'executor', 'threads', definition['dimension'], 'run_index',
+        ]
+        missing = [field for field in required if field not in result]
+        if missing:
+            errors.append(
+                f'{result["_path"]}: cannot identify configured run; '
+                f'missing fields {", ".join(missing)}')
+            continue
+        actual[(
+            result['benchmark'],
+            result['executor'],
+            int(result['threads']),
+            int(result[definition['dimension']]),
+            int(result['run_index']),
+        )] += 1
+
+    for identity, count in sorted((expected - actual).items()):
+        errors.append(f'missing configured run {identity} (count={count})')
+    for identity, count in sorted((actual - expected).items()):
+        errors.append(
+            f'unexpected or duplicate run {identity} (count={count})')
+    return errors
 
 
 def summarize(results):
@@ -77,7 +146,7 @@ def summarize(results):
         benchmark = result['benchmark']
         definition = BENCHMARK_FIELDS[benchmark]
         dimension_key = definition['dimension']
-        required = ['executor', 'threads', dimension_key]
+        required = ['executor', 'threads', dimension_key, 'run_index']
         missing = [field for field in required if field not in result]
         if missing:
             validation_errors.append(
@@ -103,6 +172,10 @@ def summarize(results):
     for key, group in sorted(grouped.items()):
         benchmark, executor, threads, dimension = key
         definition = BENCHMARK_FIELDS[benchmark]
+        group_valid = all(
+            item.get('complete') is True and
+            item.get('waitable_invariant') is True
+            for item in group)
         row = {
             'benchmark': benchmark,
             'executor': executor,
@@ -123,7 +196,8 @@ def summarize(results):
                     f'{benchmark}/{executor}/{threads}/{dimension}: '
                     f'missing metric {metric}')
                 continue
-            row[f'median_{metric}'] = median(values)
+            if group_valid:
+                row[f'median_{metric}'] = median(values)
         rows.append(row)
 
     return rows, validation_errors
@@ -142,16 +216,31 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
+def suppress_medians(rows):
+    """Remove performance medians when the result set is invalid."""
+    for row in rows:
+        for field in list(row):
+            if field.startswith('median_'):
+                del row[field]
+
+
 def print_summary(rows):
     """Print a compact human-readable summary."""
     for row in rows:
         dimension_key = BENCHMARK_FIELDS[row['benchmark']]['dimension']
         if row['benchmark'] == 'int64_message_passing':
+            throughput = row.get('median_throughput_msg_s')
+            latency = row.get('median_avg_latency_us')
             primary = (
-                f'{row["median_throughput_msg_s"]:,.0f} msg/s, '
-                f'{row["median_avg_latency_us"]:.3f} us avg')
+                f'{throughput:,.0f} msg/s, {latency:.3f} us avg'
+                if throughput is not None and latency is not None
+                else 'metrics unavailable')
         else:
-            primary = f'{row["median_throughput_ops_s"]:,.0f} ops/s'
+            throughput = row.get('median_throughput_ops_s')
+            primary = (
+                f'{throughput:,.0f} ops/s'
+                if throughput is not None
+                else 'metrics unavailable')
         print(
             f'{row["benchmark"]}: executor={row["executor"]} '
             f'threads={row["threads"]} {dimension_key}={row[dimension_key]} '
@@ -167,7 +256,16 @@ def main():
     try:
         results = load_results(args.result_directory)
         rows, validation_errors = summarize(results)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+        validation_errors.extend(
+            validate_expected_results(args.result_directory, results))
+        if validation_errors:
+            suppress_medians(rows)
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        yaml.YAMLError,
+    ) as error:
         print(f'error: {error}', file=sys.stderr)
         return 1
 

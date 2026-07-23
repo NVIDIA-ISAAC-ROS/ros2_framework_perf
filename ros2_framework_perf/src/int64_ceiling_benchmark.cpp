@@ -30,7 +30,6 @@
 
 #include "rclcpp/executors/events_cbg_executor/events_cbg_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "rmw/rmw.h"
 #include "ros2_framework_perf/ceiling_benchmark_utils.hpp"
 #include "std_msgs/msg/int64.hpp"
 
@@ -369,7 +368,6 @@ int main(int argc, char ** argv)
     complete = complete && published == expected && received == expected &&
       waitable_invariant;
 
-    const char * rmw_identifier = rmw_get_implementation_identifier();
     std::ostringstream output;
     output << "{"
            << "\"benchmark\":\"int64_message_passing\","
@@ -377,8 +375,6 @@ int main(int argc, char ** argv)
            << "\"executor\":\"events_cbg\","
            << "\"build_type\":\""
            << JsonEscape(ROS2_FRAMEWORK_PERF_BUILD_TYPE) << "\","
-           << "\"rmw_implementation\":\""
-           << JsonEscape(rmw_identifier == nullptr ? "" : rmw_identifier) << "\","
            << "\"threads\":" << thread_count << ","
            << "\"flows\":" << flow_count << ","
            << "\"messages_per_flow\":" << messages_per_flow << ","

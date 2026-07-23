@@ -21,9 +21,10 @@
 """Run YAML-defined ROS 2 framework-ceiling benchmark matrices."""
 
 import argparse
+import copy
 import json
 import os
-import shutil
+import shlex
 import subprocess
 import sys
 from datetime import datetime
@@ -95,6 +96,13 @@ def parse_result(output):
         if candidate.startswith('{') and candidate.endswith('}'):
             return json.loads(candidate)
     raise ValueError('benchmark did not print a JSON result')
+
+
+def timeout_output_text(output):
+    """Normalize TimeoutExpired output for JSON serialization."""
+    if isinstance(output, bytes):
+        return output.decode(errors='replace')
+    return output or ''
 
 
 def build_runs(config, selected_benchmark, repetitions):
@@ -178,8 +186,8 @@ def run_one(run, output_directory, dry_run):
             'benchmark': definition['result_benchmark'],
             'complete': False,
             'error': f'process timed out after {error.timeout} seconds',
-            'stdout': error.stdout or '',
-            'stderr': error.stderr or '',
+            'stdout': timeout_output_text(error.stdout),
+            'stderr': timeout_output_text(error.stderr),
         }
 
     result.setdefault('executor', executor)
@@ -232,9 +240,17 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
-    repetitions = args.repetitions or int(config['repetitions'])
+    repetitions = (
+        args.repetitions
+        if args.repetitions is not None
+        else int(config['repetitions'])
+    )
     if repetitions <= 0:
         parser.error('--repetitions must be greater than zero')
+
+    runs = list(build_runs(config, args.benchmark, repetitions))
+    if not runs:
+        parser.error('configuration selects no enabled benchmark runs')
 
     if args.output_directory:
         output_directory = args.output_directory
@@ -244,17 +260,30 @@ def main():
 
     if not args.dry_run:
         output_directory.mkdir(parents=True, exist_ok=False)
-        shutil.copy2(args.config, output_directory / 'framework_ceiling.yaml')
+        effective_config = copy.deepcopy(config)
+        effective_config['repetitions'] = repetitions
+        if args.benchmark != 'all':
+            for benchmark_name in BENCHMARKS:
+                if benchmark_name != args.benchmark:
+                    benchmark_config = effective_config.setdefault(
+                        benchmark_name, {})
+                    benchmark_config['enabled'] = False
+        (output_directory / 'framework_ceiling.yaml').write_text(
+            yaml.safe_dump(effective_config, sort_keys=False),
+            encoding='utf-8')
 
     success = True
-    for run in build_runs(config, args.benchmark, repetitions):
+    for run in runs:
         success = run_one(run, output_directory, args.dry_run) and success
 
     if not args.dry_run:
         print(f'Results written to {output_directory}')
+        summarizer = Path(__file__).with_name(
+            'summarize_ceiling_results.py')
         print(
             'Summarize with: '
-            f'python3 scripts/summarize_ceiling_results.py {output_directory}')
+            f'python3 {shlex.quote(str(summarizer))} '
+            f'{shlex.quote(str(output_directory))}')
     return 0 if success else 1
 
 

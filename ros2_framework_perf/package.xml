@@ -37,7 +37,6 @@ SPDX-License-Identifier: Apache-2.0
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
   <depend>rclcpp_lifecycle</depend>
-  <depend>rmw</depend>
   <depend>ros2_framework_perf_interfaces</depend>
   <depend>std_msgs</depend>
   <depend>yaml_cpp_vendor</depend>

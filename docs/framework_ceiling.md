@@ -103,8 +103,8 @@ python3 src/ros2_framework_perf/scripts/run_ceiling_benchmarks.py \
 
 ## Summarize results
 
-The runner writes one JSON file per repetition and matrix cell. Calculate medians and validate every
-completion/invariant result with:
+The runner writes one JSON file per repetition and matrix cell. Summarize repeated runs and validate
+result completeness and executor-dispatch invariants with:
 
 ```bash
 python3 src/ros2_framework_perf/scripts/summarize_ceiling_results.py \

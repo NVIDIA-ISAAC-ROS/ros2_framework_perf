@@ -32,6 +32,7 @@ SPDX-License-Identifier: Apache-2.0
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
+  <depend>rcl</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
@@ -42,6 +43,9 @@ SPDX-License-Identifier: Apache-2.0
   <depend>yaml-cpp</depend>
   <depend>message_filters</depend>
 
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

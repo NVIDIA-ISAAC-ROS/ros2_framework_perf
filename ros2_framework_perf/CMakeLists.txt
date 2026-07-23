@@ -52,10 +52,50 @@ target_link_libraries(emitter_node
 )
 rclcpp_components_register_nodes(emitter_node "ros2_framework_perf::EmitterNode")
 
+ament_auto_add_executable(int64_ceiling_benchmark
+  src/int64_ceiling_benchmark.cpp
+)
+target_compile_definitions(int64_ceiling_benchmark
+  PRIVATE
+    ROS2_FRAMEWORK_PERF_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+)
+
+ament_auto_add_executable(scheduler_ceiling_benchmark
+  src/scheduler_ceiling_benchmark.cpp
+)
+target_compile_definitions(scheduler_ceiling_benchmark
+  PRIVATE
+    ROS2_FRAMEWORK_PERF_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+)
+
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
   ament_lint_auto_find_test_dependencies()
   find_package(launch_testing_ament_cmake REQUIRED)
+
+  ament_add_pytest_test(
+    test_ceiling_tools
+    test/test_ceiling_tools.py
+  )
+
+  add_test(
+    NAME test_int64_ceiling_smoke
+    COMMAND
+      Python3::Interpreter
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/verify_ceiling_executable.py
+      $<TARGET_FILE:int64_ceiling_benchmark>
+      message_passing
+  )
+  add_test(
+    NAME test_scheduler_ceiling_smoke
+    COMMAND
+      Python3::Interpreter
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/verify_ceiling_executable.py
+      $<TARGET_FILE:scheduler_ceiling_benchmark>
+      scheduler
+  )
 
   # Add launch test
   add_launch_test(
@@ -67,4 +107,4 @@ if(BUILD_TESTING)
 
 endif()
 
-ament_auto_package(INSTALL_TO_SHARE ../scripts launch)
+ament_auto_package(INSTALL_TO_SHARE ../config ../docs ../scripts launch)

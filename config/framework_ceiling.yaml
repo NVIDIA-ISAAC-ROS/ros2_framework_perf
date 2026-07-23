@@ -1,0 +1,28 @@
+# Framework-ceiling microbenchmarks use continuously ready waitables and minimal callback work.
+schema_version: 1
+output_directory: ceiling_benchmark_results
+repetitions: 5
+executor: events_cbg
+
+message_passing:
+  enabled: true
+  messages_per_flow: 100000
+  timeout_seconds: 60
+  matrix:
+    - {threads: 1, flows: 1}
+    - {threads: 2, flows: 2}
+    - {threads: 4, flows: 4}
+    - {threads: 8, flows: 8}
+    - {threads: 2, flows: 8}
+
+scheduler:
+  enabled: true
+  operations_per_operator: 100000
+  timeout_seconds: 60
+  matrix:
+    - {threads: 1, operators: 1}
+    - {threads: 2, operators: 2}
+    - {threads: 4, operators: 4}
+    - {threads: 8, operators: 8}
+    - {threads: 16, operators: 16}
+    - {threads: 2, operators: 8}
